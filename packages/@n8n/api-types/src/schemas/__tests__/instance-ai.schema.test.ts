@@ -1256,26 +1256,6 @@ describe('InstanceAiEvalRestoreThreadRequest folders', () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects duplicate folder ids and undeclared parents in the request itself', () => {
-		const duplicate = InstanceAiEvalRestoreThreadRequest.safeParse({
-			threadId,
-			messages: [],
-			folders: [
-				{ id: 'odwFolder0001', name: 'ODW' },
-				{ id: 'odwFolder0001', name: 'ODW 2' },
-			],
-		});
-		expect(duplicate.success).toBe(false);
-		expect(errorOf(duplicate)).toContain('Duplicate seed folder id');
-
-		const orphan = InstanceAiEvalRestoreThreadRequest.safeParse({
-			threadId,
-			messages: [],
-			folders: [{ id: 'odwArchive001', name: 'Archive', parentFolderId: 'missingFolder1' }],
-		});
-		expect(orphan.success).toBe(false);
-	});
-
 	it('caps folders at 20', () => {
 		const result = InstanceAiEvalRestoreThreadRequest.safeParse({
 			threadId,

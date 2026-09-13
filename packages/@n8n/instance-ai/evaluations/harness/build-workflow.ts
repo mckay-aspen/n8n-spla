@@ -1371,16 +1371,50 @@ async function evictLeftoverSeedWorkflows(
 }
 
 /**
+ * Shared shape of the by-name evictions: list what is on the instance, keep
+ * what is stale, delete each one on its own so a failed delete never shields
+ * the next leftover, and log every outcome. Best-effort throughout — a failure
+ * here is logged and the restore still runs.
+ */
+async function evictLeftovers<T extends { name: string }>(args: {
+	noun: string;
+	list: () => Promise<T[]>;
+	isStale: (item: T) => boolean;
+	/** Deletes the item; the returned text is appended to the success log line. */
+	remove: (item: T) => Promise<string>;
+	logger: EvalLogger;
+	laneTag?: string;
+}): Promise<void> {
+	const tag = args.laneTag ?? '';
+	const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
+	try {
+		const stale = (await args.list()).filter(args.isStale);
+		for (const item of stale) {
+			try {
+				const detail = await args.remove(item);
+				args.logger.info(
+					`  Evicted leftover seed ${args.noun} "${item.name}" before restore${detail}${tag}`,
+				);
+			} catch (error: unknown) {
+				args.logger.info(
+					`  Could not evict leftover seed ${args.noun} "${item.name}" (continuing): ${reason(error)}${tag}`,
+				);
+			}
+		}
+	} catch (error: unknown) {
+		args.logger.info(
+			`  Could not list ${args.noun}s to evict leftovers (continuing): ${reason(error)}${tag}`,
+		);
+	}
+}
+
+/**
  * Delete any team project already sitting on the instance under a seed project's
  * name, so a crashed run's leftover doesn't turn into a second "Foobar" the agent
  * has to disambiguate. Exact-name match: seed project names are NOT suffixed (the
  * live turn names them), so there is no pattern to key off — which also means this
  * would delete a same-named project a human created. Seed names should therefore be
  * distinctive enough not to collide with real ones.
- *
- * Best-effort: a failure here is logged and the run continues, since a duplicate
- * duplicate still leaves the case's premise (a visible project that isn't the bound
- * one) intact.
  */
 async function evictLeftoverSeedProjects(
 	client: N8nClient,
@@ -1388,41 +1422,39 @@ async function evictLeftoverSeedProjects(
 	logger: EvalLogger,
 	laneTag?: string,
 ): Promise<void> {
-	try {
-		const stale = (await client.listTeamProjects()).filter((project) => project.name === name);
-		for (const project of stale) {
-			try {
-				await client.deleteProject(project.id);
-				logger.info(`  Evicted leftover seed project "${name}" before restore${laneTag ?? ''}`);
-			} catch (error: unknown) {
-				logger.info(
-					`  Could not evict leftover seed project "${name}" (continuing): ${error instanceof Error ? error.message : String(error)}${laneTag ?? ''}`,
-				);
-			}
-		}
-	} catch (error: unknown) {
-		logger.info(
-			`  Could not list projects to evict leftovers (continuing): ${error instanceof Error ? error.message : String(error)}${laneTag ?? ''}`,
-		);
-	}
+	await evictLeftovers({
+		noun: 'project',
+		list: async () => await client.listTeamProjects(),
+		isStale: (project) => project.name === name,
+		remove: async (project) => {
+			await client.deleteProject(project.id);
+			return '';
+		},
+		logger,
+		laneTag,
+	});
 }
 
 /**
  * Delete any root folder in the thread's project that carries a seed folder's
- * name AND existed before the run started, so a crashed run's leftover cannot
- * sit next to the one about to be created. Root level only: a seed tree always
- * starts at the root (every `parentFolderId` names a declared folder), and
- * deleting a root folder cascades to its children, so a nested leftover goes
- * with its parent.
+ * name AND existed before the run started, with everything in it, so a crashed
+ * run's leftover cannot sit next to the one about to be created. Root level
+ * only: a seed tree always starts at the root (every `parentFolderId` names a
+ * declared folder), and the tree delete takes the subfolders and every workflow
+ * inside with it — a crashed run's agent-built workflow included, unpublished
+ * through the normal path so no trigger stays registered.
  *
- * The pre-run snapshot is what makes a same-name match safe: iterations of one
- * case run back to back on a lane, and the previous iteration's folder is still
- * live (its cleanup runs after judging) when this one restores. A folder delete
- * archives the workflows inside it, so evicting by name alone dismantled the
- * sibling's fixture and left its cleanup reporting a missing folder. Anything
- * created during the run is absent from the snapshot by construction. No
- * snapshot means no eviction. Best-effort, like the other evictions — a failure
- * here is logged, and the restore still runs.
+ * Same blast radius as the project eviction, and for the same reason: the name
+ * is verbatim (the live turn says "the ODW folder"), so there is no `[seed …]`
+ * marker to tell a leftover from a folder a human made. A same-named folder that
+ * predates the run is deleted with its contents. Point folder cases at an eval
+ * instance, and give seed folders names a real project would not use.
+ *
+ * The pre-run snapshot is what keeps a same-name match from reaching a sibling:
+ * iterations of one case run back to back on a lane, and the previous
+ * iteration's folder is still live (its cleanup runs after judging) when this
+ * one restores. Anything created during the run is absent from the snapshot by
+ * construction. No snapshot means no eviction.
  */
 async function evictLeftoverSeedFolders(
 	client: N8nClient,
@@ -1437,35 +1469,18 @@ async function evictLeftoverSeedFolders(
 			.map((folder) => folder.name),
 	);
 	if (rootNames.size === 0 || preRunFolderIds === undefined) return;
-	try {
-		const projectId = await client.getPersonalProjectId();
-		const stale = (await client.listRootFolders(projectId)).filter(
-			(folder) => preRunFolderIds.has(folder.id) && rootNames.has(folder.name),
-		);
-		for (const folder of stale) {
-			try {
-				// Contents kept, at the root: the seed workflows a crashed run left in it
-				// were already evicted by suffix, and anything else in there is not ours
-				// to archive. A count in the log says when that happened.
-				await client.deleteFolder(projectId, folder.id, { keepContents: true });
-				const moved =
-					folder.workflowCount > 0
-						? `, ${String(folder.workflowCount)} workflow(s) moved to the project root`
-						: '';
-				logger.info(
-					`  Evicted leftover seed folder "${folder.name}" before restore${moved}${laneTag ?? ''}`,
-				);
-			} catch (error: unknown) {
-				logger.info(
-					`  Could not evict leftover seed folder "${folder.name}" (continuing): ${error instanceof Error ? error.message : String(error)}${laneTag ?? ''}`,
-				);
-			}
-		}
-	} catch (error: unknown) {
-		logger.info(
-			`  Could not list folders to evict leftovers (continuing): ${error instanceof Error ? error.message : String(error)}${laneTag ?? ''}`,
-		);
-	}
+	const projectId = await client.getPersonalProjectId();
+	await evictLeftovers({
+		noun: 'folder',
+		list: async () => await client.listFolders(projectId),
+		isStale: (folder) => preRunFolderIds.has(folder.id) && rootNames.has(folder.name),
+		remove: async (folder) => {
+			const deleted = await client.deleteFolderTree(projectId, folder.id);
+			return deleted > 0 ? `, with ${String(deleted)} workflow(s) inside` : '';
+		},
+		logger,
+		laneTag,
+	});
 }
 
 function formatProxyStatsSuffix(stats: ProxyDecisionStats | undefined): string {

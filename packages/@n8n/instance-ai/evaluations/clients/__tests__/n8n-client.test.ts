@@ -432,19 +432,18 @@ describe('N8nClient.deleteWorkflow', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('still deletes a workflow whose archive step reports it already archived', async () => {
+	it('still deletes a workflow whose archive step answers 400 (already archived)', async () => {
 		// A folder delete archives the workflows it held, so a leftover from a
 		// crashed folder case arrives here archived. The archive 400 must not stop
-		// the delete, or the leftover survives every eviction and cleanup.
+		// the delete, or the leftover survives every eviction and cleanup. Keyed on
+		// the status, not the message text, so a reworded server error cannot
+		// reintroduce it.
 		const fetchMock = vi.fn(async (url: string | URL) => {
 			if (String(url).endsWith('/archive')) {
-				return new Response(
-					JSON.stringify({ code: 400, message: 'Workflow is already archived.' }),
-					{
-						status: 400,
-						headers: { 'Content-Type': 'application/json' },
-					},
-				);
+				return new Response(JSON.stringify({ code: 400, message: 'reworded by the server' }), {
+					status: 400,
+					headers: { 'Content-Type': 'application/json' },
+				});
 			}
 			return jsonResponse({ data: true });
 		});
@@ -469,5 +468,98 @@ describe('N8nClient.deleteWorkflow', () => {
 
 		await expect(client.deleteWorkflow('wf-1')).rejects.toThrow(/500/);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('N8nClient.deleteFolderTree', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('deletes every workflow in the subtree, then the folder, and reports the count', async () => {
+		const calls: string[] = [];
+		const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+			const path = String(url).replace(BASE_URL, '');
+			calls.push(`${init?.method ?? 'GET'} ${path.split('?')[0]}`);
+			if (path.startsWith('/rest/projects/project-1/folders?')) {
+				const parent = JSON.parse(new URL(String(url)).searchParams.get('filter') ?? '{}') as {
+					parentFolderId?: string;
+				};
+				// `stale-odw` holds `archive-1`; `archive-1` holds nothing.
+				return jsonResponse({
+					data:
+						parent.parentFolderId === 'stale-odw'
+							? [{ id: 'archive-1', name: 'Archive', workflowCount: 0 }]
+							: [],
+				});
+			}
+			if (path === '/rest/workflows') {
+				return jsonResponse({
+					data: [
+						{
+							id: 'wf-in-root',
+							name: 'A',
+							active: false,
+							nodes: [],
+							parentFolder: { id: 'stale-odw' },
+						},
+						{
+							id: 'wf-in-child',
+							name: 'B',
+							active: false,
+							nodes: [],
+							parentFolder: { id: 'archive-1' },
+						},
+						{ id: 'wf-elsewhere', name: 'C', active: false, nodes: [], parentFolder: null },
+					],
+				});
+			}
+			return jsonResponse({ data: true });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.deleteFolderTree('project-1', 'stale-odw')).resolves.toBe(2);
+
+		expect(calls).toEqual([
+			'GET /rest/projects/project-1/folders',
+			'GET /rest/projects/project-1/folders',
+			'GET /rest/workflows',
+			'POST /rest/workflows/wf-in-root/archive',
+			'DELETE /rest/workflows/wf-in-root',
+			'POST /rest/workflows/wf-in-child/archive',
+			'DELETE /rest/workflows/wf-in-child',
+			'DELETE /rest/projects/project-1/folders/stale-odw',
+		]);
+	});
+});
+
+describe('N8nClient.getPersonalProjectId', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('fetches the personal project once per client and reuses it', async () => {
+		const fetchMock = stubFetch({ data: { id: 'project-1' } });
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.getPersonalProjectId()).resolves.toBe('project-1');
+		await expect(client.getPersonalProjectId()).resolves.toBe('project-1');
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('retries after a failed lookup instead of caching the failure', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response('down', { status: 503, headers: { 'Content-Type': 'text/plain' } }),
+			)
+			.mockResolvedValueOnce(jsonResponse({ data: { id: 'project-1' } }));
+		vi.stubGlobal('fetch', fetchMock);
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.getPersonalProjectId()).rejects.toThrow(/503/);
+		await expect(client.getPersonalProjectId()).resolves.toBe('project-1');
 	});
 });

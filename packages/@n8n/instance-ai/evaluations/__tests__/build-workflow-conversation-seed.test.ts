@@ -88,7 +88,7 @@ function makeClient(
 	restoreThread: ReturnType<typeof vi.fn>,
 	overrides: Partial<
 		Record<
-			'listWorkflows' | 'deleteWorkflow' | 'sendMessage' | 'listRootFolders' | 'deleteFolder',
+			'listWorkflows' | 'deleteWorkflow' | 'sendMessage' | 'listFolders' | 'deleteFolderTree',
 			ReturnType<typeof vi.fn>
 		>
 	> = {},
@@ -101,8 +101,8 @@ function makeClient(
 		getThreadMessages: vi.fn().mockResolvedValue({ messages: [] }),
 		listWorkflows: overrides.listWorkflows ?? vi.fn().mockResolvedValue([]),
 		deleteWorkflow: overrides.deleteWorkflow ?? vi.fn().mockResolvedValue(undefined),
-		listRootFolders: overrides.listRootFolders ?? vi.fn().mockResolvedValue([]),
-		deleteFolder: overrides.deleteFolder ?? vi.fn().mockResolvedValue(undefined),
+		listFolders: overrides.listFolders ?? vi.fn().mockResolvedValue([]),
+		deleteFolderTree: overrides.deleteFolderTree ?? vi.fn().mockResolvedValue(0),
 		restoreThread,
 	} as unknown as N8nClient;
 }
@@ -630,27 +630,24 @@ describe('buildWorkflow with seeded folders', () => {
 			folderIds: ['real-odw'],
 		});
 		// `stale-odw` predates the run; `sibling-odw` is the previous iteration's
-		// live folder, created during the run. Only the first may go: a folder delete
-		// archives the workflows inside it, which would dismantle the sibling's fixture.
-		const listRootFolders = vi.fn().mockResolvedValue([
+		// live folder, created during the run. Only the first may go: the tree delete
+		// takes the workflows inside, which would dismantle the sibling's fixture.
+		const listFolders = vi.fn().mockResolvedValue([
 			{ id: 'stale-odw', name: 'ODW', workflowCount: 0 },
 			{ id: 'sibling-odw', name: 'ODW', workflowCount: 3 },
 			{ id: 'unrelated', name: 'Finance', workflowCount: 0 },
 		]);
-		const deleteFolder = vi.fn().mockResolvedValue(undefined);
+		const deleteFolderTree = vi.fn().mockResolvedValue(2);
 
 		await buildWorkflow({
-			client: makeClient(restoreThread, { listRootFolders, deleteFolder }),
+			client: makeClient(restoreThread, { listFolders, deleteFolderTree }),
 			...baseConfig,
 			preRunFolderIds: new Set(['stale-odw', 'unrelated']),
 			seed: { mode: 'inline' as const, ...folderSeed() },
 		});
 
-		// Contents are kept at the root, never archived: they are not this run's.
-		expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('project-1', 'stale-odw', {
-			keepContents: true,
-		});
-		expect(deleteFolder.mock.invocationCallOrder[0]).toBeLessThan(
+		expect(deleteFolderTree).toHaveBeenCalledExactlyOnceWith('project-1', 'stale-odw');
+		expect(deleteFolderTree.mock.invocationCallOrder[0]).toBeLessThan(
 			restoreThread.mock.invocationCallOrder[0],
 		);
 	});
@@ -663,18 +660,18 @@ describe('buildWorkflow with seeded folders', () => {
 			agentIds: [],
 			folderIds: ['real-odw'],
 		});
-		const listRootFolders = vi
+		const listFolders = vi
 			.fn()
 			.mockResolvedValue([{ id: 'stale-odw', name: 'ODW', workflowCount: 0 }]);
-		const deleteFolder = vi.fn().mockResolvedValue(undefined);
+		const deleteFolderTree = vi.fn().mockResolvedValue(0);
 
 		await buildWorkflow({
-			client: makeClient(restoreThread, { listRootFolders, deleteFolder }),
+			client: makeClient(restoreThread, { listFolders, deleteFolderTree }),
 			...baseConfig,
 			seed: { mode: 'inline' as const, ...folderSeed() },
 		});
 
-		expect(deleteFolder).not.toHaveBeenCalled();
+		expect(deleteFolderTree).not.toHaveBeenCalled();
 	});
 
 	it('restores a folders-only seed, which has nothing else thread-scoped', async () => {

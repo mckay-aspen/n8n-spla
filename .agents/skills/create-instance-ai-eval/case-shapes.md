@@ -596,8 +596,14 @@ Things worth knowing:
   LangTracer case 699 grades it, and it needs no `folders` slot.
 - **Names are verbatim and leftovers are evicted**, like seeded projects. The live turn
   names the folder, so the created name has to match exactly; a root folder of the same
-  name that existed before the run started is deleted before the restore. A previous
-  iteration's folder, created during the run, is left alone.
+  name that existed before the run started is deleted before the restore, with every
+  workflow and subfolder in it. There is no seed marker on the name, so a same-named
+  folder a human made on that instance goes too: use an eval instance, and a name a
+  real project would not use. A previous iteration's folder, created during the run,
+  is left alone.
+- **Run it alone.** A folder case and its miss-path sibling (case 699) share the
+  project, so one invocation per case. With several iterations the previous folder can
+  still be live for a few seconds while it is judged; keep the name distinctive.
 - **Nesting works.** A folder's own `parentFolderId` names another seed folder. Parents
   are created first. The `folderPath` for a nested folder is `Parent/Child`, so a folder
   name cannot contain `/`.

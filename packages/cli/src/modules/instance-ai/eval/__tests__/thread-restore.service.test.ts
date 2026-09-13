@@ -825,6 +825,38 @@ describe('EvalThreadRestoreService', () => {
 			expect(licenseState.isFoldersLicensed).not.toHaveBeenCalled();
 		});
 
+		it('moves a re-applied seed workflow to the folder the seed names, or to the root when it names none', async () => {
+			// The seed's placement is authoritative, like its nodes: the update path
+			// writes `parentFolder` too, `null` meaning the project root.
+			sharedWorkflowRepo.getWorkflowOwningProject.mockResolvedValue(
+				mock<Project>({ id: 'project-1' }),
+			);
+			workflowRepo.findByIds.mockResolvedValue([
+				mock<WorkflowEntity>({ id: 'wf-1', name: 'Old', nodes: [] }),
+			]);
+
+			await service.restoreWorkflows(
+				[
+					{
+						id: 'wf-1',
+						name: 'Placed',
+						nodes: [makeNode()],
+						connections: {},
+						parentFolderId: 'odwFolder0001',
+					},
+					{ id: 'wf-1', name: 'Rooted', nodes: [makeNode()], connections: {} },
+				],
+				'project-1',
+				new Map(),
+				undefined,
+				new Map([['odwFolder0001', 'real-odw']]),
+			);
+
+			const updates = workflowRepo.updateContent.mock.calls.map(([, content]) => content);
+			expect(updates[0]).toMatchObject({ name: 'Placed', parentFolder: { id: 'real-odw' } });
+			expect(updates[1]).toMatchObject({ name: 'Rooted', parentFolder: null });
+		});
+
 		it('refuses a folder whose parent the seed does not declare, creating nothing', async () => {
 			await expect(
 				service.restoreFolders(

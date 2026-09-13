@@ -955,9 +955,18 @@ user names (CONTEXT-86: `workflows(action="list")` takes `folderPath` or `folder
 - **Names are created verbatim**, with no `[seed …]` suffix, for the same reason seeded
   projects are: the live turn says "the ODW folder", so the created name has to match. A
   root folder of the same name that existed before the run started is evicted before the
-  restore, so a crashed run cannot leave two ODW folders for the agent to disambiguate.
+  restore, **with everything in it**, so a crashed run cannot leave two ODW folders for
+  the agent to disambiguate. Same blast radius as the project eviction: there is no seed
+  marker on the name, so a same-named folder a human made on that instance goes too.
+  Point folder cases at an eval instance, and pick names a real project would not use.
   Folders created during the run (a previous iteration's, still live while it is judged)
-  are never touched: a folder delete archives the workflows inside it.
+  are never touched.
+- **One folder case at a time per instance.** Two cases whose premises conflict (the
+  folder exists / the folder must not exist) share the project, so run them in separate
+  invocations. With `--iterations N` the previous iteration's folder is still live for
+  a few seconds while it is judged, so a same-named second folder can exist briefly;
+  keep the folder name distinctive and check the run log if a `folderPath` lookup came
+  back ambiguous. Seeded projects have the same window.
 - **Rules checked at case load**, not mid-run: a folder `id` has at least 8 characters;
   ids are unique; every `parentFolderId` (on a folder or a workflow) names a declared
   folder; no folder is its own ancestor; a `name` is already trimmed, has no `/` (the

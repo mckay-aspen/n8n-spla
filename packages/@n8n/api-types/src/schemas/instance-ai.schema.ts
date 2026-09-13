@@ -2676,19 +2676,10 @@ export class InstanceAiEvalRestoreThreadRequest extends Z.class({
 	 *  when the request only seeds data tables (TRUST-311 scenario seeding). */
 	messages: z.array(z.record(z.unknown())).max(1000),
 	/** Folders created first, parents before children, in the thread's project.
-	 *  Workflows reference them by `parentFolderId`. The folder-only rules are
-	 *  checked here; the workflow references need both arrays, so the endpoint
-	 *  runs `findSeedFolderIssues` on the whole payload. */
-	folders: z
-		.array(instanceAiEvalSeedFolderSchema)
-		.max(20)
-		.optional()
-		.superRefine((folders, ctx) => {
-			if (!folders) return;
-			for (const message of findSeedFolderIssues({ folders })) {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, message });
-			}
-		}),
+	 *  Workflows reference them by `parentFolderId`. The reference rules span both
+	 *  arrays, so the endpoint runs `findSeedFolderIssues` on the whole payload
+	 *  before it creates anything. */
+	folders: z.array(instanceAiEvalSeedFolderSchema).max(20).optional(),
 	/** Data tables the workflows reference; recreated first so ids can be rewritten. */
 	dataTables: z.array(instanceAiEvalSeedDataTableSchema).max(20).optional(),
 	/** Workflows the history references; recreated. A node credential is kept only

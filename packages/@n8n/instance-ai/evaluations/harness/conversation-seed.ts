@@ -176,15 +176,10 @@ export const ConversationSeedSchema = z.object({
 	 *  which generates the ids: like data tables, they are carried through the
 	 *  remap untouched. Names are created verbatim (no seed suffix) because the
 	 *  live turn names the folder the way a user would; a leftover of the same
-	 *  name at the project root is evicted first. Parent references and workflow
-	 *  placement are checked at the case level, where both arrays are visible. */
-	folders: z
-		.array(instanceAiEvalSeedFolderSchema)
-		.max(20)
-		.default([])
-		.refine((folders) => new Set(folders.map((folder) => folder.id)).size === folders.length, {
-			message: 'seed folder ids must be unique — workflows and child folders resolve by id',
-		}),
+	 *  name at the project root is evicted first. Unique ids, parent references
+	 *  and workflow placement are checked at the case level (`findSeedFolderIssues`),
+	 *  the one place that sees both arrays. */
+	folders: z.array(instanceAiEvalSeedFolderSchema).max(20).default([]),
 	/** Agents the history built, recreated (and bound to the thread) on restore, so
 	 *  the live turn edits one that already exists. */
 	agents: z.array(instanceAiEvalSeedAgentSchema).default([]),

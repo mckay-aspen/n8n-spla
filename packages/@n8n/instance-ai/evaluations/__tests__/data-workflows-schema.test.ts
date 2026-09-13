@@ -184,6 +184,21 @@ describe('EvalTestCaseSchema', () => {
 		).toThrow(/nopeFolder001/);
 	});
 
+	it('rejects two folders sharing an id', () => {
+		expect(() =>
+			EvalTestCaseSchema.parse({
+				...validFixture(),
+				seed: {
+					mode: 'inline',
+					folders: [
+						{ id: 'odwFolder0001', name: 'ODW' },
+						{ id: 'odwFolder0001', name: 'Other' },
+					],
+				},
+			}),
+		).toThrow(/Duplicate seed folder id/);
+	});
+
 	it('rejects a folder whose parent is undeclared, and a parent cycle', () => {
 		expect(() =>
 			EvalTestCaseSchema.parse({

@@ -50,9 +50,12 @@ export async function setupLanes(args: CliArgs, logger: EvalLogger): Promise<Lan
 				mcpUserPool = new LaneUserPool(client);
 			}
 
-			const preRunWorkflowIds = await snapshotWorkflowIds(client);
-			const preRunDataTableIds = await snapshotDataTableIds(client);
-			const preRunFolderIds = await snapshotRootFolderIds(client);
+			// Independent reads of one instance, so they run together.
+			const [preRunWorkflowIds, preRunDataTableIds, preRunFolderIds] = await Promise.all([
+				snapshotWorkflowIds(client),
+				snapshotDataTableIds(client),
+				snapshotRootFolderIds(client),
+			]);
 			const claimedWorkflowIds = new Set<string>();
 			const createdCredentialIds = new Set<string>();
 			const workflowIdsToDelete = new Set<string>();

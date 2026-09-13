@@ -243,7 +243,10 @@ describe('unsupportedPushReason', () => {
 			setKind: 'regression',
 			synthetic: true,
 		});
-		expect(body.seed).toEqual(seed);
+		// Minus the empty `folders` slot: the write API's `seed` has no such key, so
+		// even the schema default would 400 every seeded push.
+		const { folders: _empty, ...pushable } = seed;
+		expect(body.seed).toEqual(pushable);
 	});
 
 	it('omits the seed key entirely for an unseeded case', () => {

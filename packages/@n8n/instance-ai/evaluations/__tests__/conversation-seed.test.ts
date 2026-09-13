@@ -957,18 +957,6 @@ describe('seed folders', () => {
 		expect(parsed.success).toBe(true);
 	});
 
-	it('rejects two folders sharing an id', () => {
-		const parsed = ConversationSeedSchema.safeParse({
-			messages: [],
-			folders: [
-				{ id: 'odwFolder0001', name: 'ODW' },
-				{ id: 'odwFolder0001', name: 'Other' },
-			],
-		});
-
-		expect(parsed.success).toBe(false);
-	});
-
 	it('rejects more than 20 folders', () => {
 		const parsed = ConversationSeedSchema.safeParse({
 			messages: [],

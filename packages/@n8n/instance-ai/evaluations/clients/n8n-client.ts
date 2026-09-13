@@ -27,7 +27,7 @@ import type {
 	AgentSkill,
 	EvaluationConfigDto,
 } from '@n8n/api-types';
-import type { ExecutionStatus } from 'n8n-workflow';
+import { PROJECT_ROOT, type ExecutionStatus } from 'n8n-workflow';
 import { Agent, setGlobalDispatcher } from 'undici';
 import { z } from 'zod';
 
@@ -182,7 +182,20 @@ interface WorkflowListItem {
 	name: string;
 	active: boolean;
 	nodes: WorkflowNodeResponse[];
+	/** The folder the workflow sits in; absent or null at the project root. */
+	parentFolder?: { id: string } | null;
 }
+
+/** One page of a project's folder list, trimmed to the fields the harness reads. */
+const FolderListEnvelope = z.object({
+	data: z.array(
+		z.object({
+			id: z.string(),
+			name: z.string(),
+			workflowCount: z.number().default(0),
+		}),
+	),
+});
 
 interface ExecutionListItem {
 	id: string;
@@ -245,6 +258,8 @@ export class N8nApiError extends Error {
 
 export class N8nClient {
 	private sessionCookie?: string;
+	/** Memoized per login: every cleanup, eviction and snapshot asks for it. */
+	private personalProjectId?: Promise<string>;
 
 	/** Public: the browser runtime needs to know where n8n ACTUALLY is, which is
 	 *  not always what n8n reports as its own base URL (see `planRelayConnection`). */
@@ -719,9 +734,10 @@ export class N8nClient {
 	}
 
 	/**
-	 * Delete a workflow by ID. The workflow must be archived first. A workflow
-	 * that is already archived (a folder delete archives what the folder held)
-	 * skips straight to the delete: refusing there left every such leftover
+	 * Delete a workflow by ID. The workflow must be archived first. The archive
+	 * step's only 400 is "already archived" (a folder delete archives what the
+	 * folder held), so a 400 there goes straight to the delete, which refuses a
+	 * live workflow on its own. Refusing here left every such leftover
 	 * undeletable by eviction and cleanup alike.
 	 * DELETE /rest/workflows/:id
 	 */
@@ -729,11 +745,7 @@ export class N8nClient {
 		try {
 			await this.archiveWorkflow(id);
 		} catch (error: unknown) {
-			const alreadyArchived =
-				error instanceof N8nApiError &&
-				error.status === 400 &&
-				error.message.includes('already archived');
-			if (!alreadyArchived) throw error;
+			if (!(error instanceof N8nApiError && error.status === 400)) throw error;
 		}
 		await this.fetch(`/rest/workflows/${id}`, { method: 'DELETE' });
 	}
@@ -999,13 +1011,20 @@ export class N8nClient {
 	 * GET /rest/projects/personal
 	 */
 	async getPersonalProjectId(): Promise<string> {
-		const result = (await this.fetch('/rest/projects/personal')) as {
-			data: { id: string };
-		};
-		if (!result.data?.id) {
-			throw new Error('Could not determine personal project ID');
-		}
-		return result.data.id;
+		this.personalProjectId ??= (async () => {
+			const result = (await this.fetch('/rest/projects/personal')) as {
+				data: { id: string };
+			};
+			if (!result.data?.id) {
+				throw new Error('Could not determine personal project ID');
+			}
+			return result.data.id;
+		})().catch((error: unknown) => {
+			// A failed lookup must not stick: the next caller retries.
+			this.personalProjectId = undefined;
+			throw error;
+		});
+		return await this.personalProjectId;
 	}
 
 	/**
@@ -1074,44 +1093,65 @@ export class N8nClient {
 	// -- Folders -------------------------------------------------------------
 
 	/**
-	 * List the folders at a project's root, so a run can evict a crashed
-	 * predecessor's leftover seed folder before recreating it. Root only: a seed
-	 * folder tree always starts at the root, and deleting the root folder
-	 * cascades to what it holds.
+	 * List the folders directly under `parentFolderId` (`PROJECT_ROOT` for the
+	 * root) in a project. The eviction reads the root level to find a crashed
+	 * predecessor's leftover seed folder, and walks down from it.
 	 * GET /rest/projects/:projectId/folders
 	 */
-	async listRootFolders(
+	async listFolders(
 		projectId: string,
+		parentFolderId: string = PROJECT_ROOT,
 	): Promise<Array<{ id: string; name: string; workflowCount: number }>> {
-		// `parentFolderId: '0'` is `PROJECT_ROOT`. `take` is explicit because the
-		// default page is 10 and the eviction has to see every root folder.
-		const filter = encodeURIComponent(JSON.stringify({ parentFolderId: '0' }));
-		const result = (await this.fetch(
-			`/rest/projects/${projectId}/folders?filter=${filter}&take=250`,
-		)) as { data?: Array<{ id?: string; name?: string; workflowCount?: number }> };
-		return (result.data ?? []).flatMap(({ id, name, workflowCount }) =>
-			id !== undefined && name !== undefined
-				? [{ id, name, workflowCount: workflowCount ?? 0 }]
-				: [],
-		);
+		// `take` is explicit because the default page is 10 and the eviction has to
+		// see every folder at the level. `select` skips the joins the default select
+		// makes for fields nobody here reads.
+		const query = new URLSearchParams({
+			filter: JSON.stringify({ parentFolderId }),
+			select: JSON.stringify(['id', 'name', 'workflowCount']),
+			take: '250',
+		});
+		const result = await this.fetch(`/rest/projects/${projectId}/folders?${query.toString()}`);
+		return FolderListEnvelope.parse(result).data;
 	}
 
 	/**
-	 * Delete a folder. By default n8n archives the workflows it holds and moves
-	 * them to the root; `keepContents` moves folders and workflows to the root
-	 * unarchived instead, for a delete of a folder the run did not create.
+	 * Delete a folder the run created. n8n archives any workflow still inside
+	 * and moves it to the root, so call it after the run's workflows are gone.
 	 * DELETE /rest/projects/:projectId/folders/:folderId
 	 */
-	async deleteFolder(
-		projectId: string,
-		folderId: string,
-		options: { keepContents?: boolean } = {},
-	): Promise<void> {
-		// `transferToFolderId=0` is `PROJECT_ROOT`.
-		const query = options.keepContents ? '?transferToFolderId=0' : '';
-		await this.fetch(`/rest/projects/${projectId}/folders/${folderId}${query}`, {
-			method: 'DELETE',
-		});
+	async deleteFolder(projectId: string, folderId: string): Promise<void> {
+		await this.fetch(`/rest/projects/${projectId}/folders/${folderId}`, { method: 'DELETE' });
+	}
+
+	/**
+	 * Delete a folder the run did NOT create, with everything in it: every
+	 * workflow anywhere in its subtree (unpublished and deleted through the
+	 * normal path, so no trigger stays registered), then the folder, whose
+	 * delete cascades to the emptied subfolders. Used to evict a crashed run's
+	 * leftover seed folder. Returns how many workflows it deleted.
+	 */
+	async deleteFolderTree(projectId: string, folderId: string): Promise<number> {
+		const folderIds = new Set<string>([folderId]);
+		const pending = [folderId];
+		while (pending.length > 0) {
+			const parent = pending.shift();
+			if (parent === undefined) break;
+			for (const child of await this.listFolders(projectId, parent)) {
+				folderIds.add(child.id);
+				pending.push(child.id);
+			}
+		}
+		const inside = (await this.listWorkflows()).filter(
+			(workflow) =>
+				workflow.parentFolder !== null &&
+				workflow.parentFolder !== undefined &&
+				folderIds.has(workflow.parentFolder.id),
+		);
+		for (const workflow of inside) {
+			await this.deleteWorkflow(workflow.id);
+		}
+		await this.deleteFolder(projectId, folderId);
+		return inside.length;
 	}
 
 	/**

@@ -41,11 +41,24 @@ export interface LangTracerCreateCaseBody {
 	/** Forwarded verbatim, so the declared shape has to carry every authored
 	 *  field — an understated type silently drops `valid`/`blank` from review. */
 	credentials?: TestCaseCredential[];
-	/** Inline seed, forwarded verbatim — lang-tracer stores it at `metadata.seed`.
+	/** Inline seed, forwarded as authored — lang-tracer stores it at `metadata.seed`.
 	 *  Only the authored arm: a replay seed is derived from a source thread by
 	 *  promote/scrub over there, so pushing one would fabricate provenance. */
-	seed?: Extract<CaseSeed, { mode: 'inline' }>;
+	seed?: PushableSeed;
 	credentialFixture?: string;
+}
+
+type InlineSeed = Extract<CaseSeed, { mode: 'inline' }>;
+
+/** The seed as the case-write API takes it. `folders` is absent rather than `[]`:
+ *  the API's `seed` is `additionalProperties: false` and has no such key, so the
+ *  schema default alone would fail EVERY seeded push, folder case or not. */
+export type PushableSeed = Omit<InlineSeed, 'folders'> & { folders?: InlineSeed['folders'] };
+
+function pushableSeed(seed: InlineSeed): PushableSeed {
+	// A non-empty `folders` never reaches here: `unsupportedPushReason` refuses it.
+	const { folders, ...rest } = seed;
+	return folders.length > 0 ? seed : rest;
 }
 
 export interface ToLangTracerOptions {
@@ -146,7 +159,7 @@ export function diskCaseToLangTracerCreate(
 	if (testCase.messageBudget !== undefined) body.messageBudget = testCase.messageBudget;
 	if (testCase.credentials !== undefined) body.credentials = testCase.credentials;
 	// Replay never reaches here — `unsupportedPushReason` skips those cases upstream.
-	if (testCase.seed?.mode === 'inline') body.seed = testCase.seed;
+	if (testCase.seed?.mode === 'inline') body.seed = pushableSeed(testCase.seed);
 	if (testCase.credentialFixture !== undefined) body.credentialFixture = testCase.credentialFixture;
 
 	return body;

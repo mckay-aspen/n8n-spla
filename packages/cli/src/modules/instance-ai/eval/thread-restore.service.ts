@@ -1,6 +1,5 @@
 import {
 	AgentJsonConfigSchema,
-	findSeedFolderIssues,
 	type InstanceAiEvalSeedAgent,
 	type InstanceAiEvalSeedDataTable,
 	type InstanceAiEvalSeedFolder,
@@ -115,21 +114,16 @@ export class EvalThreadRestoreService {
 					'PATCH /rest/e2e/feature {"feature":"feat:folders","enabled":true}',
 			);
 		}
-		const issues = findSeedFolderIssues({ folders });
-		if (issues.length > 0) {
-			throw new BadRequestError(issues.join('; '));
-		}
 		try {
-			// Parents first: a child needs its parent's created id. The reference
-			// check above guarantees every chain ends at a root, so this terminates.
+			// Parents first: a child needs its parent's created id. The endpoint's
+			// `findSeedFolderIssues` pass guarantees every chain ends at a root.
 			const pending = [...folders];
 			while (pending.length > 0) {
 				const index = pending.findIndex(
 					(folder) => folder.parentFolderId === undefined || idMap.has(folder.parentFolderId),
 				);
-				// Unreachable after the check above; guards the loop against a caller
-				// that skipped it, where `splice(-1)` would silently create the last
-				// folder at the root.
+				// Guards the loop against a caller that skipped the reference check,
+				// where `splice(-1)` would silently create the last folder at the root.
 				if (index === -1) {
 					throw new BadRequestError(
 						`Seed folders ${pending.map((folder) => `"${folder.id}"`).join(', ')} have no creatable parent`,
@@ -457,7 +451,9 @@ export class EvalThreadRestoreService {
 
 		// Resolved before any write, so a stale reference fails the restore
 		// instead of landing the workflow at the root of a case that grades
-		// folder membership.
+		// folder membership. The seed's placement is authoritative, root included:
+		// a re-applied seed without `parentFolderId` moves its stored row to the
+		// root, the same way it overwrites the row's nodes.
 		const parentFolderId =
 			workflow.parentFolderId === undefined ? null : folderIdMap.get(workflow.parentFolderId);
 		if (parentFolderId === undefined) {
