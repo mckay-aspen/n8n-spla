@@ -21,6 +21,7 @@ third parties would require n8n's embed license.
 | Tab title ("Autobot") | `packages/frontend/@n8n/composables/src/useDocumentTitle.ts` (+ its tests) |
 | HTML title + favicons | `packages/frontend/editor-ui/index.html`, `public/favicon.svg`, `public/favicon.ico` |
 | E-mail logo | `packages/frontend/editor-ui/public/static/n8n-logo.png` |
+| Serve `/favicon.svg` as a static asset (SPA fallback whitelists only `.ico`) | `packages/cli/src/server.ts` (`nonUIRoutes`) |
 | Image build CI | `.github/workflows/spla-build.yml` |
 
 Colors mirror `apps/admin/src/styles.css` in `mckay-aspen/sneakerprojectla-website`:

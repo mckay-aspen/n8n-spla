@@ -418,6 +418,9 @@ export class Server extends AbstractServer {
 			// Route all UI urls to index.html to support history-api
 			const nonUIRoutes: readonly string[] = [
 				'favicon.ico',
+				// SPLA: the rebranded editor links an SVG favicon; without this entry the
+				// history-api fallback answers it with index.html.
+				'favicon.svg',
 				'assets',
 				'static',
 				'types',
