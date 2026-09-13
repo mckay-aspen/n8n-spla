@@ -1106,13 +1106,10 @@ export class N8nClient {
 	 * GET /rest/projects/:projectId/folders
 	 */
 	async listFolders(projectId: string): Promise<FolderPlacement[]> {
-		// `take` is explicit because the default page is 10. `select` skips the
-		// joins and counts the default select makes for fields nobody here reads.
-		const query = new URLSearchParams({
-			select: JSON.stringify(['id', 'name', 'parentFolder']),
-			take: '250',
-		});
-		const result = await this.fetch(`/rest/projects/${projectId}/folders?${query.toString()}`);
+		// `take` is explicit because the default page is 10. No `select`: a custom
+		// select that includes `parentFolder` 500s on the server ("column
+		// distinctAlias.folder_updatedAt does not exist"), so the default select it is.
+		const result = await this.fetch(`/rest/projects/${projectId}/folders?take=250`);
 		return FolderListEnvelope.parse(result).data.map(({ id, name, parentFolder }) => ({
 			id,
 			name,
