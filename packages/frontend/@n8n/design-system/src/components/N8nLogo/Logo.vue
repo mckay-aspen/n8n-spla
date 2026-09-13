@@ -76,6 +76,10 @@ onMounted(() => {
 	path {
 		fill: var(--color--text--shade-1);
 	}
+	/* SPLA WHITE-LABEL: the replacement wordmark uses a <text> element */
+	text {
+		fill: var(--color--text--shade-1);
+	}
 }
 
 .large {

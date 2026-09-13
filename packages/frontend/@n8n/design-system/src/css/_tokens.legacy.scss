@@ -26,9 +26,10 @@
 /* stylelint-disable @n8n/css-var-naming */
 
 @mixin theme-legacy {
-	--color--primary--h: 7;
-	--color--primary--s: 100%;
-	--color--primary--l: 68%;
+	/* SPLA WHITE-LABEL: hsl components of #172d72 (was n8n orange 7/100%/68%) */
+	--color--primary--h: 225;
+	--color--primary--s: 66%;
+	--color--primary--l: 27%;
 
 	// Legacy tokens (kept for compatibility)
 
@@ -116,6 +117,17 @@
 }
 
 @mixin theme-dark-legacy {
+	/* SPLA WHITE-LABEL: dark mode uses the light-indigo brand (#93a9ff), like
+	   the SPLA admin app — n8n upstream keeps one brand color in both themes. */
+	--color--primary--h: 228;
+	--color--primary--s: 100%;
+	--color--primary--l: 79%;
+	--color--primary--shade-1: var(--color-primary-shade-1, #7b93f5);
+	--color--primary: var(--color-primary, #93a9ff);
+	--color--primary--tint-1: var(--color-primary-tint-1, #aebfff);
+	--color--primary--tint-2: var(--color-primary-tint-2, #2f3d63);
+	--color--primary--tint-3: var(--color-primary-tint-3, #1e2a4a);
+
 	--color--danger: var(--color--red-400);
 
 	--color--text--shade-1: var(--color--neutral-white);

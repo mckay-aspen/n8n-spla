@@ -1,0 +1,61 @@
+# SPLA WHITE-LABEL: build the rebranded n8n image and publish it to GHCR as
+# ghcr.io/mckay-aspen/n8n-spla:<version>-spla (plus the matching runners image).
+# This workflow is ours — everything else under .github/workflows is upstream's.
+name: SPLA image build
+
+on:
+  push:
+    branches: [spla-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      IMAGE_BASE_NAME: ghcr.io/mckay-aspen/n8n-spla
+      RUNNERS_IMAGE_BASE_NAME: ghcr.io/mckay-aspen/n8n-spla-runners
+      DOCKER_PLATFORM: linux/amd64
+    steps:
+      # The monorepo build needs more disk than the runner has free by default.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from packageManager in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve image tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "IMAGE_TAG=${version}-spla" >> "$GITHUB_ENV"
+          echo "Building ${IMAGE_BASE_NAME}:${version}-spla"
+
+      - name: Build n8n and image
+        run: pnpm build:docker
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push images
+        run: |
+          docker push "${IMAGE_BASE_NAME}:${IMAGE_TAG}"
+          docker tag "${IMAGE_BASE_NAME}:${IMAGE_TAG}" "${IMAGE_BASE_NAME}:latest"
+          docker push "${IMAGE_BASE_NAME}:latest"
+          if docker image inspect "${RUNNERS_IMAGE_BASE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+            docker push "${RUNNERS_IMAGE_BASE_NAME}:${IMAGE_TAG}"
+          fi
