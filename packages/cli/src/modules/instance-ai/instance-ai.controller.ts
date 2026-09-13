@@ -22,6 +22,7 @@ import {
 	InstanceAiEvalCredentialAllowlistRequest,
 	InstanceAiEvalRestoreThreadRequest,
 	InstanceAiEvalSeedDataTableRowsRequest,
+	findSeedFolderIssues,
 	findUnbackedSeedWorkflowTools,
 } from '@n8n/api-types';
 import type { InstanceAiAdminSettingsResponse, InstanceAiEvent } from '@n8n/api-types';
@@ -1069,6 +1070,7 @@ export class InstanceAiController {
 
 		const workflows = payload.workflows ?? [];
 		const agents = payload.agents ?? [];
+		const folders = payload.folders ?? [];
 		// Cross-field, so the schema can't own it: a seeded agent's workflow tool is
 		// resolved by DISPLAY NAME, and a name no seeded workflow carries restores a
 		// dead tool (or binds an unrelated ambient workflow of the same name).
@@ -1083,17 +1085,21 @@ export class InstanceAiController {
 					.join('; '),
 			);
 		}
-		// Data tables first: the workflows reference them, and their ids are
-		// rewritten to the recreated tables' ids during workflow restore.
-		const idMap = await this.evalThreadRestore.restoreDataTables(
-			payload.dataTables ?? [],
-			projectId,
-			{ uniquifyNames: payload.uniquifyNames ?? true },
-		);
-		const dataTableIds = [...idMap.values()];
+		// Also cross-field: a workflow's `parentFolderId` must name a seeded folder.
+		// Checked before anything is created, so a typo costs no rollback.
+		const folderIssues = findSeedFolderIssues({ folders, workflows });
+		if (folderIssues.length > 0) {
+			throw new BadRequestError(folderIssues.join('; '));
+		}
+		// Folders first: the workflows are created inside them. `restoreFolders`
+		// rolls its own partial work back, so nothing else exists yet if it fails.
+		const folderIdMap = await this.evalThreadRestore.restoreFolders(folders, projectId);
+		const folderIds = [...folderIdMap.values()];
 		// Roll back everything we created if a later step fails, so a partial
-		// restore doesn't leak workflows/tables/agents into the shared eval project.
+		// restore doesn't leak folders/tables/workflows/agents into the shared eval
+		// project.
 		let restored = 0;
+		let dataTableIds: string[] = [];
 		let createdWorkflowIds: string[] = [];
 		let publishedWorkflowIds: string[] = [];
 		let createdAgentIds: string[] = [];
@@ -1106,11 +1112,20 @@ export class InstanceAiController {
 		// so a same-named credential of a concurrent case is never picked.
 		const allowedCredentialIds = this.evalCredentialAllowlists.get(payload.threadId);
 		try {
+			// Data tables before workflows: the workflows reference them, and their ids
+			// are rewritten to the recreated tables' ids during workflow restore.
+			const idMap = await this.evalThreadRestore.restoreDataTables(
+				payload.dataTables ?? [],
+				projectId,
+				{ uniquifyNames: payload.uniquifyNames ?? true },
+			);
+			dataTableIds = [...idMap.values()];
 			createdWorkflowIds = await this.evalThreadRestore.restoreWorkflows(
 				workflows,
 				projectId,
 				idMap,
 				allowedCredentialIds ? new Set(allowedCredentialIds) : undefined,
+				folderIdMap,
 			);
 			// BEFORE the messages, which the rollback cannot undo: a refused activation
 			// (no trigger, webhook conflict, unresolved credential) must fail while the
@@ -1169,6 +1184,9 @@ export class InstanceAiController {
 			await this.evalThreadRestore.unpublishWorkflows(publishedWorkflowIds);
 			await this.evalThreadRestore.deleteWorkflows(createdWorkflowIds);
 			await this.evalThreadRestore.deleteDataTables(dataTableIds, projectId);
+			// Last: a folder delete cascades to the workflows inside it, which must
+			// already be unpublished and gone by their own path.
+			await this.evalThreadRestore.deleteFolders(folderIds);
 			throw error;
 		}
 		return {
@@ -1178,6 +1196,7 @@ export class InstanceAiController {
 			workflowIds: workflows.map((workflow) => workflow.id),
 			dataTableIds,
 			agentIds: createdAgentIds,
+			folderIds,
 		};
 	}
 

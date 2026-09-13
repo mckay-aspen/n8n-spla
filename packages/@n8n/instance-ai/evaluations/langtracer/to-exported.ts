@@ -75,11 +75,26 @@ export function unsupportedPushReason(testCase: EvalTestCaseInput): string | nul
 			return null;
 		case 'inline':
 			// The write API validates `metadata.seed` against a fixed key set
-			// (`additionalProperties: false`), so it does NOT store `projects` — a push
-			// would either 400 or land the case with the fixture stripped. A stripped
-			// project-scope case is the worst outcome available: it still runs, the seeded
-			// project never exists, and the agent's refusal is graded against a project
-			// list it never saw. Refuse until lang-tracer carries the key.
+			// (`additionalProperties: false`). It has no `folders` key, and its
+			// `workflows[]` items declare no `parentFolderId`, so a push would either
+			// 400 or land the case with the folder stripped and every workflow at the
+			// root. A stripped folder case is the worst outcome available: it still
+			// runs, the folder never exists, and the agent is graded on finding it.
+			// Refuse until lang-tracer carries both.
+			if (
+				seed.folders.length > 0 ||
+				seed.workflows.some((workflow) => workflow.parentFolderId !== undefined)
+			) {
+				return (
+					'seeds folders, which the case-write API does not store yet — pushing it would ' +
+					'land the case without its folder (and with every workflow at the project root) ' +
+					'and grade the agent on finding a folder that does not exist. Keep it on disk ' +
+					'until lang-tracer carries `seed.folders` and `seed.workflows[].parentFolderId`.'
+				);
+			}
+			// Same reasoning for `projects`: not stored, so the seeded project would never
+			// exist and the agent's refusal would be graded against a project list it
+			// never saw. Refuse until lang-tracer carries the key.
 			return seed.projects.length > 0
 				? 'seeds projects, which the case-write API does not store yet — pushing it would ' +
 						'land the case without its seeded project and grade the agent against a project ' +

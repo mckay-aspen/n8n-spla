@@ -30,6 +30,7 @@ function makeClient(overrides: Partial<Record<keyof N8nClient, Mock>> = {}): {
 		deleteDataTable: vi.fn().mockResolvedValue(undefined),
 		getPersonalProjectId: vi.fn().mockResolvedValue('project-1'),
 		deleteProject: vi.fn().mockResolvedValue(undefined),
+		deleteFolder: vi.fn().mockResolvedValue(undefined),
 		deleteThread: vi.fn().mockResolvedValue(undefined),
 		...overrides,
 	};
@@ -170,5 +171,42 @@ describe('cleanupBuild', () => {
 		await expect(cleanupBuild(client, makeBuild(), silentLogger)).resolves.toBe(true);
 
 		expect(mocks.deleteProject).not.toHaveBeenCalled();
+	});
+});
+
+describe('cleanupBuild seeded folders', () => {
+	it('deletes seeded folders after the workflows, children first', async () => {
+		const { client, mocks } = makeClient();
+		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F-parent', 'F-child'] };
+
+		await expect(cleanupBuild(client, build, silentLogger)).resolves.toBe(true);
+
+		expect(mocks.deleteFolder.mock.calls).toEqual([
+			['project-1', 'F-child'],
+			['project-1', 'F-parent'],
+		]);
+		// A folder delete archives what it still holds, so the workflows go first.
+		expect(mocks.deleteWorkflow.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.deleteFolder.mock.invocationCallOrder[0],
+		);
+	});
+
+	it('reports not clean when a folder delete fails, and still deletes the thread', async () => {
+		const { client, mocks } = makeClient({
+			deleteFolder: vi.fn().mockRejectedValue(new Error('HTTP 404')),
+		});
+		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F1'] };
+
+		await expect(cleanupBuild(client, build, silentLogger)).resolves.toBe(false);
+
+		expect(mocks.deleteThread).toHaveBeenCalledWith('T1');
+	});
+
+	it('touches no folder API for a build without seeded folders', async () => {
+		const { client, mocks } = makeClient();
+
+		await cleanupBuild(client, makeBuild(), silentLogger);
+
+		expect(mocks.deleteFolder).not.toHaveBeenCalled();
 	});
 });

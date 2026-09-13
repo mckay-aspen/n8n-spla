@@ -109,7 +109,8 @@ export function abortedWorkflowTestCaseResult(
 }
 
 /**
- * Clean up workflows, data tables and any built agent created during a build.
+ * Clean up workflows, data tables, seeded folders and projects, and any built
+ * agent created during a build.
  *
  * Returns false when any deletion failed so callers can retry later.
  */
@@ -159,6 +160,26 @@ export async function cleanupBuild(
 				}
 			}
 			logger.verbose(`  Cleaned up ${String(build.createdDataTableIds.length)} data table(s)`);
+		} catch {
+			clean = false; // Non-fatal — project ID lookup may fail
+		}
+	}
+
+	// Folders a seed created. After the workflows: a folder delete archives what
+	// it still holds and moves it to the root, so the workflows must already be
+	// gone by their own path. Children first (the restore returns parents first),
+	// so no delete lands on a folder its parent's cascade already removed.
+	if (build.createdFolderIds?.length) {
+		try {
+			const projectId = await client.getPersonalProjectId();
+			for (const folderId of [...build.createdFolderIds].reverse()) {
+				try {
+					await client.deleteFolder(projectId, folderId);
+				} catch {
+					clean = false; // Best-effort cleanup
+				}
+			}
+			logger.verbose(`  Cleaned up ${String(build.createdFolderIds.length)} folder(s)`);
 		} catch {
 			clean = false; // Non-fatal — project ID lookup may fail
 		}

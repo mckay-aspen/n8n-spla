@@ -372,3 +372,57 @@ describe('N8nClient.restoreThread — agent seeding contract', () => {
 		await expect(client.restoreThread('thread-1', [], [])).resolves.toMatchObject({ agentIds: [] });
 	});
 });
+
+describe('N8nClient.restoreThread — folder seeding contract', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const FOLDER = { id: 'odwFolder0001', name: 'ODW' };
+
+	function restoreBody(over: Record<string, unknown> = {}) {
+		return {
+			data: {
+				ok: true,
+				threadId: 'thread-1',
+				restored: 0,
+				workflowIds: [],
+				dataTableIds: [],
+				agentIds: [],
+				...over,
+			},
+		};
+	}
+
+	it('fails when folders were requested but the response carries none', async () => {
+		// `folderIds` defaults to [] for older backends, which would otherwise read as
+		// "restored fine, zero folders" — grading the agent on a folder that does not exist.
+		stubFetch(restoreBody());
+		const client = new N8nClient(BASE_URL);
+
+		await expect(
+			client.restoreThread('thread-1', [], [], [], [], { folders: [FOLDER] }),
+		).rejects.toThrow(/predates folder seeding/);
+	});
+
+	it('passes when every requested folder comes back, and sends the folders in the body', async () => {
+		const fetchMock = stubFetch(restoreBody({ folderIds: ['real-odw'] }));
+		const client = new N8nClient(BASE_URL);
+
+		await expect(
+			client.restoreThread('thread-1', [], [], [], [], { folders: [FOLDER] }),
+		).resolves.toMatchObject({ folderIds: ['real-odw'] });
+
+		const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+		expect(JSON.parse(init.body)).toMatchObject({ folders: [FOLDER] });
+	});
+
+	it('still accepts a missing folderIds when no folders were requested', async () => {
+		stubFetch(restoreBody());
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.restoreThread('thread-1', [], [])).resolves.toMatchObject({
+			folderIds: [],
+		});
+	});
+});

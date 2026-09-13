@@ -36,6 +36,17 @@ export async function snapshotDataTableIds(client: N8nClient): Promise<Set<strin
 	}
 }
 
+/** Root folders present before any build on a lane — the seed-folder eviction's
+ *  allowlist, so it can never delete a sibling iteration's live folder. */
+export async function snapshotRootFolderIds(client: N8nClient): Promise<Set<string>> {
+	try {
+		const folders = await client.listRootFolders(await client.getPersonalProjectId());
+		return new Set(folders.map((folder) => folder.id));
+	} catch {
+		return new Set();
+	}
+}
+
 // ---------------------------------------------------------------------------
 // buildAgentOutcome
 // ---------------------------------------------------------------------------

@@ -451,7 +451,9 @@ export {
 	InstanceAiFilesystemResponseDto,
 	instanceAiEvalSeedDataTableSchema,
 	instanceAiEvalSeedAgentSchema,
+	instanceAiEvalSeedFolderSchema,
 	findUnbackedSeedWorkflowTools,
+	findSeedFolderIssues,
 	applyBranchReadOnlyOverrides,
 	deriveInstanceAiSetupState,
 	INSTANCE_AI_THREAD_SOURCES,
@@ -602,6 +604,7 @@ export type {
 	InstanceAiEvalSeedWorkflow,
 	InstanceAiEvalSeedDataTable,
 	InstanceAiEvalSeedAgent,
+	InstanceAiEvalSeedFolder,
 } from './schemas/instance-ai.schema';
 
 export type {

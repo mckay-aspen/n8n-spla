@@ -20,6 +20,7 @@ import type {
 	InstanceAiThreadStatusResponse,
 	InstanceAiEvalSeedAgent,
 	InstanceAiEvalSeedDataTable,
+	InstanceAiEvalSeedFolder,
 	InstanceAiEvalSeedWorkflow,
 	InstanceAiWorkflowAttachment,
 	AgentJsonConfig,
@@ -77,6 +78,7 @@ const RestoreThreadEnvelope = z.object({
 		workflowIds: z.array(z.string()),
 		dataTableIds: z.array(z.string()).default([]),
 		agentIds: z.array(z.string()).default([]),
+		folderIds: z.array(z.string()).default([]),
 	}),
 });
 
@@ -904,6 +906,9 @@ export class N8nClient {
 	 * EXACT declared names, so a freshly-built workflow's by-name references
 	 * resolve (TRUST-311 scenario seeding). `messages`/`workflows` may be empty to
 	 * seed only data tables.
+	 *
+	 * `options.folders` are created first, in the thread's project, and the
+	 * seed workflows' `parentFolderId` references resolve to them server-side.
 	 * POST /rest/instance-ai/eval/restore-thread
 	 */
 	async restoreThread(
@@ -912,14 +917,23 @@ export class N8nClient {
 		workflows: InstanceAiEvalSeedWorkflow[],
 		dataTables: InstanceAiEvalSeedDataTable[] = [],
 		agents: InstanceAiEvalSeedAgent[] = [],
-		options: { uniquifyNames?: boolean } = {},
+		options: { uniquifyNames?: boolean; folders?: InstanceAiEvalSeedFolder[] } = {},
 	): Promise<{
 		restored: number;
 		workflowIds: string[];
 		dataTableIds: string[];
 		agentIds: string[];
+		folderIds: string[];
 	}> {
-		const body: Record<string, unknown> = { threadId, messages, workflows, dataTables, agents };
+		const folders = options.folders ?? [];
+		const body: Record<string, unknown> = {
+			threadId,
+			messages,
+			workflows,
+			dataTables,
+			agents,
+			folders,
+		};
 		if (options.uniquifyNames !== undefined) body.uniquifyNames = options.uniquifyNames;
 		const result = await this.fetch('/rest/instance-ai/eval/restore-thread', {
 			method: 'POST',
@@ -933,6 +947,13 @@ export class N8nClient {
 		if (agents.length > 0 && restored.agentIds.length !== agents.length) {
 			throw new Error(
 				`Restore was asked to seed ${String(agents.length)} agent(s) but the response carried ${String(restored.agentIds.length)} — the backend likely predates agent seeding.`,
+			);
+		}
+		// Same guard for folders: a backend that ignores the field would leave the
+		// case grading the agent against a folder that does not exist.
+		if (folders.length > 0 && restored.folderIds.length !== folders.length) {
+			throw new Error(
+				`Restore was asked to seed ${String(folders.length)} folder(s) but the response carried ${String(restored.folderIds.length)} — the backend likely predates folder seeding.`,
 			);
 		}
 		return restored;
@@ -1037,6 +1058,36 @@ export class N8nClient {
 	 */
 	async deleteProject(projectId: string): Promise<void> {
 		await this.fetch(`/rest/projects/${projectId}`, { method: 'DELETE' });
+	}
+
+	// -- Folders -------------------------------------------------------------
+
+	/**
+	 * List the folders at a project's root, so a run can evict a crashed
+	 * predecessor's leftover seed folder before recreating it. Root only: a seed
+	 * folder tree always starts at the root, and deleting the root folder
+	 * cascades to what it holds.
+	 * GET /rest/projects/:projectId/folders
+	 */
+	async listRootFolders(projectId: string): Promise<Array<{ id: string; name: string }>> {
+		// `parentFolderId: '0'` is `PROJECT_ROOT`. `take` is explicit because the
+		// default page is 10 and the eviction has to see every root folder.
+		const filter = encodeURIComponent(JSON.stringify({ parentFolderId: '0' }));
+		const result = (await this.fetch(
+			`/rest/projects/${projectId}/folders?filter=${filter}&take=250`,
+		)) as { data?: Array<{ id?: string; name?: string }> };
+		return (result.data ?? []).flatMap(({ id, name }) =>
+			id !== undefined && name !== undefined ? [{ id, name }] : [],
+		);
+	}
+
+	/**
+	 * Delete a folder. Its workflows are archived and moved to the root, so call
+	 * it after the run's workflows are already gone.
+	 * DELETE /rest/projects/:projectId/folders/:folderId
+	 */
+	async deleteFolder(projectId: string, folderId: string): Promise<void> {
+		await this.fetch(`/rest/projects/${projectId}/folders/${folderId}`, { method: 'DELETE' });
 	}
 
 	/**

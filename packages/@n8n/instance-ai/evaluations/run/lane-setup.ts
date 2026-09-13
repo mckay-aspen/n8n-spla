@@ -12,7 +12,11 @@ import { cleanupCredentials } from '../credentials/seeder';
 import type { EvalLogger } from '../harness/logger';
 import { cleanupPrebuiltWorkflows } from '../harness/prebuilt-workflows';
 import { seedMcpRegistry } from '../mcp-registry/seeder';
-import { snapshotDataTableIds, snapshotWorkflowIds } from '../outcome/workflow-discovery';
+import {
+	snapshotDataTableIds,
+	snapshotRootFolderIds,
+	snapshotWorkflowIds,
+} from '../outcome/workflow-discovery';
 
 export async function setupLanes(args: CliArgs, logger: EvalLogger): Promise<Lane[]> {
 	// One lane per base URL. The LangSmith path then uses a work-stealing
@@ -48,6 +52,7 @@ export async function setupLanes(args: CliArgs, logger: EvalLogger): Promise<Lan
 
 			const preRunWorkflowIds = await snapshotWorkflowIds(client);
 			const preRunDataTableIds = await snapshotDataTableIds(client);
+			const preRunFolderIds = await snapshotRootFolderIds(client);
 			const claimedWorkflowIds = new Set<string>();
 			const createdCredentialIds = new Set<string>();
 			const workflowIdsToDelete = new Set<string>();
@@ -56,6 +61,7 @@ export async function setupLanes(args: CliArgs, logger: EvalLogger): Promise<Lan
 				baseUrl,
 				preRunWorkflowIds,
 				preRunDataTableIds,
+				preRunFolderIds,
 				claimedWorkflowIds,
 				createdCredentialIds,
 				workflowIdsToDelete,

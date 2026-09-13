@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { folderNameSchema } from './folder.schema';
 import type { McpRegistryServerIconResponse } from './mcp-registry.schema';
 import { TimeZoneSchema } from './timezone.schema';
 import { AgentJsonConfigSchema } from '../agents/agent-json-config.schema';
@@ -2488,9 +2489,99 @@ const instanceAiEvalSeedWorkflowSchema = z.object({
 	 *  Its node credentials must name credentials the thread's project holds, or
 	 *  activation refuses the workflow and the restore fails. */
 	published: z.boolean().optional(),
+	/** The seed folder (`folders[].id`) the workflow is created in. Omit for the
+	 *  project root. Must name a declared folder; see `findSeedFolderIssues`. */
+	parentFolderId: z.string().min(8).max(64).optional(),
 });
 
 export type InstanceAiEvalSeedWorkflow = z.infer<typeof instanceAiEvalSeedWorkflowSchema>;
+
+/** A folder a seed creates in the thread's project before the live turn, so a
+ *  case can grade how the agent finds the contents of a folder. The server
+ *  generates the real id and maps this one to it. The name is created VERBATIM,
+ *  with no seed suffix: the live turn names the folder the way a user would. */
+export const instanceAiEvalSeedFolderSchema = z.object({
+	// ≥8 chars like a seed data table id, so every seeded artifact obeys one rule.
+	id: z.string().min(8).max(64),
+	name: z
+		.string()
+		// Refused rather than trimmed. `folderNameSchema` trims silently, and a
+		// trimmed name no longer matches what the case says in prose.
+		.refine((name) => name.trim() === name, { message: 'Seed folder name must be trimmed' })
+		// `folderNameSchema` refuses it too, but name the reason: the list tool's
+		// `folderPath` splits on it, so a name with a slash could never be addressed.
+		.refine((name) => !name.includes('/'), {
+			message: 'Seed folder name cannot contain "/", the folderPath separator',
+		})
+		.pipe(folderNameSchema),
+	/** The seed folder this one sits in. Omit for a root folder. */
+	parentFolderId: z.string().min(8).max(64).optional(),
+});
+
+export type InstanceAiEvalSeedFolder = z.infer<typeof instanceAiEvalSeedFolderSchema>;
+
+/**
+ * Reference rules for seed folders that no single field can check: ids are
+ * unique, every parent is a declared folder, no folder is its own ancestor, and
+ * every workflow `parentFolderId` names a declared folder. Returns one message
+ * per issue, so a case fails at load with every fault named, not at restore.
+ *
+ * Shared by the request schema, the restore endpoint and the eval harness, so
+ * all three refuse the same seeds.
+ */
+export function findSeedFolderIssues(payload: {
+	folders?: Array<{ id: string; parentFolderId?: string }>;
+	workflows?: Array<{ id: string; parentFolderId?: string }>;
+}): string[] {
+	const issues: string[] = [];
+	const folders = payload.folders ?? [];
+	const parentOf = new Map<string, string | undefined>();
+	for (const folder of folders) {
+		if (parentOf.has(folder.id)) {
+			issues.push(`Duplicate seed folder id "${folder.id}" — folder ids resolve references`);
+			continue;
+		}
+		parentOf.set(folder.id, folder.parentFolderId);
+	}
+	for (const folder of folders) {
+		if (folder.parentFolderId === undefined) continue;
+		if (folder.parentFolderId === folder.id) {
+			issues.push(`Seed folder "${folder.id}" cannot be its own parent`);
+			continue;
+		}
+		if (!parentOf.has(folder.parentFolderId)) {
+			issues.push(
+				`Seed folder "${folder.id}" names parent "${folder.parentFolderId}", which the seed does not declare`,
+			);
+		}
+	}
+	// A cycle means no folder in it can be created first. Walk each chain to the
+	// root; a return to the start is a cycle. Missing parents were reported above.
+	for (const folder of folders) {
+		// A self-parent is already reported above, as its own fault.
+		if (parentOf.get(folder.id) === folder.id) continue;
+		const seen = new Set<string>([folder.id]);
+		let current = parentOf.get(folder.id);
+		while (current !== undefined && parentOf.has(current)) {
+			if (seen.has(current)) {
+				if (current === folder.id) {
+					issues.push(`Seed folder "${folder.id}" is in a parent cycle`);
+				}
+				break;
+			}
+			seen.add(current);
+			current = parentOf.get(current);
+		}
+	}
+	for (const workflow of payload.workflows ?? []) {
+		if (workflow.parentFolderId !== undefined && !parentOf.has(workflow.parentFolderId)) {
+			issues.push(
+				`Seed workflow "${workflow.id}" is placed in folder "${workflow.parentFolderId}", which the seed does not declare`,
+			);
+		}
+	}
+	return issues;
+}
 
 /** A data table a seed references. Recreated on restore (its id is server-
  *  generated, so the seed workflows' references are rewritten to the new id).
@@ -2579,6 +2670,20 @@ export class InstanceAiEvalRestoreThreadRequest extends Z.class({
 	/** Native agent message log (ISO `createdAt`), stored verbatim. May be empty
 	 *  when the request only seeds data tables (TRUST-311 scenario seeding). */
 	messages: z.array(z.record(z.unknown())).max(1000),
+	/** Folders created first, parents before children, in the thread's project.
+	 *  Workflows reference them by `parentFolderId`. The folder-only rules are
+	 *  checked here; the workflow references need both arrays, so the endpoint
+	 *  runs `findSeedFolderIssues` on the whole payload. */
+	folders: z
+		.array(instanceAiEvalSeedFolderSchema)
+		.max(20)
+		.optional()
+		.superRefine((folders, ctx) => {
+			if (!folders) return;
+			for (const message of findSeedFolderIssues({ folders })) {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+			}
+		}),
 	/** Data tables the workflows reference; recreated first so ids can be rewritten. */
 	dataTables: z.array(instanceAiEvalSeedDataTableSchema).max(20).optional(),
 	/** Workflows the history references; recreated. A node credential is kept only
