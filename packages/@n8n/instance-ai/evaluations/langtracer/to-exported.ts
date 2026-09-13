@@ -55,7 +55,8 @@ export interface ToLangTracerOptions {
 }
 
 /** Case content the case-write API can't take. An INLINE seed is pushable — it's a
- *  durable fixture, and the API stores it verbatim. A REPLAY seed isn't: it points at
+ *  durable fixture, and the API stores it verbatim — unless it carries a slot the
+ *  API's fixed key set lacks (folders, today). A REPLAY seed isn't: it points at
  *  a LangSmith trace that expires, lang-tracer derives it from a source thread it
  *  already holds, and such a case is barred from suites anyway. Returns a
  *  human-readable reason, else null. */
@@ -92,14 +93,12 @@ export function unsupportedPushReason(testCase: EvalTestCaseInput): string | nul
 					'until lang-tracer carries `seed.folders` and `seed.workflows[].parentFolderId`.'
 				);
 			}
-			// Same reasoning for `projects`: not stored, so the seeded project would never
-			// exist and the agent's refusal would be graded against a project list it
-			// never saw. Refuse until lang-tracer carries the key.
-			return seed.projects.length > 0
-				? 'seeds projects, which the case-write API does not store yet — pushing it would ' +
-						'land the case without its seeded project and grade the agent against a project ' +
-						'list it never saw. Keep it on disk until lang-tracer carries `seed.projects`.'
-				: null;
+			// `projects` IS stored: the case-write contract (the `create_test_case` tool
+			// and `POST /api/v1/cases` share it) declares `seed.projects` with the same
+			// rules this schema enforces — unique, trimmed, at most 255 characters, at
+			// most 5. The push's own read-back check still catches a deployment that
+			// predates it.
+			return null;
 		case 'replay':
 			return (
 				'uses a replay seed — reconstructed from a LangSmith trace at run time, so it has no ' +
