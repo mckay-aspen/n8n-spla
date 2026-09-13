@@ -108,6 +108,14 @@ export function abortedWorkflowTestCaseResult(
 	};
 }
 
+/** The log line for one artifact kind. Says so when a delete or the project
+ *  lookup failed: a bare "Cleaned up" would mask the leak the retry exists for. */
+function reportCleanup(noun: string, count: number, ok: boolean): string {
+	return ok
+		? `  Cleaned up ${String(count)} ${noun}`
+		: `  Could not clean up every one of ${String(count)} ${noun}; retrying at end of run`;
+}
+
 /**
  * Clean up workflows, data tables, seeded folders and projects, and any built
  * agent created during a build.
@@ -175,7 +183,7 @@ export async function cleanupBuild(
 			},
 		);
 		clean = clean && tablesClean;
-		logger.verbose(`  Cleaned up ${String(build.createdDataTableIds.length)} data table(s)`);
+		logger.verbose(reportCleanup('data table(s)', build.createdDataTableIds.length, tablesClean));
 	}
 
 	// The root folders a seed created (the delete cascades to subfolders). Only
@@ -191,7 +199,7 @@ export async function cleanupBuild(
 			},
 		);
 		clean = clean && foldersClean;
-		logger.verbose(`  Cleaned up ${String(build.createdFolderIds.length)} folder(s)`);
+		logger.verbose(reportCleanup('folder(s)', build.createdFolderIds.length, foldersClean));
 	}
 
 	// Projects a seed created. Deleted last of the artifacts, so anything the

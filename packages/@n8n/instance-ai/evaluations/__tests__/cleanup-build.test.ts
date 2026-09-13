@@ -216,6 +216,25 @@ describe('cleanupBuild seeded folders', () => {
 		expect(mocks.deleteDataTable).toHaveBeenCalledWith('project-1', 'DT1');
 	});
 
+	it('does not report a clean folder cleanup when the project lookup failed', async () => {
+		// The retry exists for exactly this leak; a "Cleaned up" line would hide it.
+		const { client } = makeClient({
+			getPersonalProjectId: vi.fn().mockRejectedValue(new Error('HTTP 503')),
+		});
+		const lines: string[] = [];
+		const logger: EvalLogger = { ...silentLogger, verbose: (line: string) => lines.push(line) };
+		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F1'] };
+
+		await expect(cleanupBuild(client, build, logger)).resolves.toBe(false);
+
+		expect(lines.some((line) => line.includes('Cleaned up') && line.includes('folder'))).toBe(
+			false,
+		);
+		expect(lines).toContainEqual(
+			expect.stringContaining('Could not clean up every one of 1 folder(s)'),
+		);
+	});
+
 	it('touches no folder API for a build without seeded folders', async () => {
 		const { client, mocks } = makeClient();
 
