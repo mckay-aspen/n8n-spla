@@ -633,9 +633,9 @@ describe('buildWorkflow with seeded folders', () => {
 		// live folder, created during the run. Only the first may go: a folder delete
 		// archives the workflows inside it, which would dismantle the sibling's fixture.
 		const listRootFolders = vi.fn().mockResolvedValue([
-			{ id: 'stale-odw', name: 'ODW' },
-			{ id: 'sibling-odw', name: 'ODW' },
-			{ id: 'unrelated', name: 'Finance' },
+			{ id: 'stale-odw', name: 'ODW', workflowCount: 0 },
+			{ id: 'sibling-odw', name: 'ODW', workflowCount: 3 },
+			{ id: 'unrelated', name: 'Finance', workflowCount: 0 },
 		]);
 		const deleteFolder = vi.fn().mockResolvedValue(undefined);
 
@@ -646,7 +646,10 @@ describe('buildWorkflow with seeded folders', () => {
 			seed: { mode: 'inline' as const, ...folderSeed() },
 		});
 
-		expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('project-1', 'stale-odw');
+		// Contents are kept at the root, never archived: they are not this run's.
+		expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('project-1', 'stale-odw', {
+			keepContents: true,
+		});
 		expect(deleteFolder.mock.invocationCallOrder[0]).toBeLessThan(
 			restoreThread.mock.invocationCallOrder[0],
 		);
@@ -660,7 +663,9 @@ describe('buildWorkflow with seeded folders', () => {
 			agentIds: [],
 			folderIds: ['real-odw'],
 		});
-		const listRootFolders = vi.fn().mockResolvedValue([{ id: 'stale-odw', name: 'ODW' }]);
+		const listRootFolders = vi
+			.fn()
+			.mockResolvedValue([{ id: 'stale-odw', name: 'ODW', workflowCount: 0 }]);
 		const deleteFolder = vi.fn().mockResolvedValue(undefined);
 
 		await buildWorkflow({

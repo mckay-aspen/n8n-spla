@@ -1444,9 +1444,16 @@ async function evictLeftoverSeedFolders(
 		);
 		for (const folder of stale) {
 			try {
-				await client.deleteFolder(projectId, folder.id);
+				// Contents kept, at the root: the seed workflows a crashed run left in it
+				// were already evicted by suffix, and anything else in there is not ours
+				// to archive. A count in the log says when that happened.
+				await client.deleteFolder(projectId, folder.id, { keepContents: true });
+				const moved =
+					folder.workflowCount > 0
+						? `, ${String(folder.workflowCount)} workflow(s) moved to the project root`
+						: '';
 				logger.info(
-					`  Evicted leftover seed folder "${folder.name}" before restore${laneTag ?? ''}`,
+					`  Evicted leftover seed folder "${folder.name}" before restore${moved}${laneTag ?? ''}`,
 				);
 			} catch (error: unknown) {
 				logger.info(

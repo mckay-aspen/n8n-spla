@@ -9,7 +9,6 @@ import {
 import { LicenseState, ModuleRegistry } from '@n8n/backend-common';
 import {
 	CredentialsRepository,
-	FolderRepository,
 	SharedWorkflowRepository,
 	WorkflowPublishedVersionRepository,
 	WorkflowRepository,
@@ -19,7 +18,13 @@ import {
 import type { PolicedWorkflow, PolicyCleared } from '@n8n/decorators';
 import { Container, Service } from '@n8n/di';
 import { isRecord } from '@n8n/utils/is-record';
-import { jsonParse, type IConnections, type INode, type INodeCredentials } from 'n8n-workflow';
+import {
+	jsonParse,
+	PROJECT_ROOT,
+	type IConnections,
+	type INode,
+	type INodeCredentials,
+} from 'n8n-workflow';
 import { randomUUID } from 'node:crypto';
 
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
@@ -81,7 +86,6 @@ export class EvalThreadRestoreService {
 		private readonly workflowHistoryService: WorkflowHistoryService,
 		private readonly workflowService: WorkflowService,
 		private readonly folderService: FolderService,
-		private readonly folderRepository: FolderRepository,
 		private readonly licenseState: LicenseState,
 	) {}
 
@@ -99,6 +103,7 @@ export class EvalThreadRestoreService {
 	async restoreFolders(
 		folders: InstanceAiEvalSeedFolder[],
 		projectId: string,
+		user: User,
 	): Promise<Map<string, string>> {
 		const idMap = new Map<string, string>();
 		if (folders.length === 0) return idMap;
@@ -122,6 +127,14 @@ export class EvalThreadRestoreService {
 				const index = pending.findIndex(
 					(folder) => folder.parentFolderId === undefined || idMap.has(folder.parentFolderId),
 				);
+				// Unreachable after the check above; guards the loop against a caller
+				// that skipped it, where `splice(-1)` would silently create the last
+				// folder at the root.
+				if (index === -1) {
+					throw new BadRequestError(
+						`Seed folders ${pending.map((folder) => `"${folder.id}"`).join(', ')} have no creatable parent`,
+					);
+				}
 				const [folder] = pending.splice(index, 1);
 				const created = await this.folderService.createFolder(
 					{
@@ -134,20 +147,24 @@ export class EvalThreadRestoreService {
 				idMap.set(folder.id, created.id);
 			}
 		} catch (error) {
-			await this.deleteFolders([...idMap.values()]);
+			await this.deleteFolders([...idMap.values()], projectId, user);
 			throw error;
 		}
 		return idMap;
 	}
 
-	/** Best-effort delete (rollback of a failed restore). Children first, so no
-	 *  delete has to rely on the cascade. Call it after the workflows are gone:
-	 *  the FK on a workflow's parent folder cascades, so a folder delete would
-	 *  otherwise take a workflow the caller still means to unpublish. */
-	async deleteFolders(folderIds: string[]): Promise<void> {
+	/** Best-effort delete (rollback of a failed restore), through the product's
+	 *  own folder delete with the contents transferred to the project root.
+	 *  Nothing inside is archived or cascaded away: a re-applied seed workflow
+	 *  (one this restore moved into the folder but did not create) survives at
+	 *  the root, which is where the rollback leaves it in every other respect.
+	 *  Children first, so no delete lands on a folder its parent already took. */
+	async deleteFolders(folderIds: string[], projectId: string, user: User): Promise<void> {
 		for (const id of [...folderIds].reverse()) {
 			try {
-				await this.folderRepository.delete({ id });
+				await this.folderService.deleteFolder(user, id, projectId, {
+					transferToFolderId: PROJECT_ROOT,
+				});
 			} catch {
 				// best-effort
 			}

@@ -4,7 +4,6 @@ import type {
 	CredentialsEntity,
 	CredentialsRepository,
 	Folder,
-	FolderRepository,
 	Project,
 	SharedWorkflowRepository,
 	User,
@@ -50,8 +49,8 @@ describe('EvalThreadRestoreService', () => {
 	const workflowHistoryService = mock<WorkflowHistoryService>();
 	const workflowService = mock<WorkflowService>();
 	const folderService = mock<FolderService>();
-	const folderRepository = mock<FolderRepository>();
 	const licenseState = mock<LicenseState>();
+	const evalUser = mock<User>({ id: 'user-1' });
 	const service = new EvalThreadRestoreService(
 		workflowRepo,
 		sharedWorkflowRepo,
@@ -62,7 +61,6 @@ describe('EvalThreadRestoreService', () => {
 		workflowHistoryService,
 		workflowService,
 		folderService,
-		folderRepository,
 		licenseState,
 	);
 	const transactionManager = mock<EntityManager>();
@@ -775,6 +773,7 @@ describe('EvalThreadRestoreService', () => {
 			const idMap = await service.restoreFolders(
 				[{ id: 'odwFolder0001', name: 'ODW' }],
 				'project-1',
+				evalUser,
 			);
 
 			expect(idMap.get('odwFolder0001')).toBe('real-odw');
@@ -796,6 +795,7 @@ describe('EvalThreadRestoreService', () => {
 					{ id: 'odwFolder0001', name: 'ODW' },
 				],
 				'project-1',
+				evalUser,
 			);
 
 			expect(folderService.createFolder.mock.calls.map(([dto]) => dto)).toEqual([
@@ -812,14 +812,14 @@ describe('EvalThreadRestoreService', () => {
 			licenseState.isFoldersLicensed.mockReturnValue(false);
 
 			await expect(
-				service.restoreFolders([{ id: 'odwFolder0001', name: 'ODW' }], 'project-1'),
+				service.restoreFolders([{ id: 'odwFolder0001', name: 'ODW' }], 'project-1', evalUser),
 			).rejects.toThrow(/feat:folders/);
 
 			expect(folderService.createFolder).not.toHaveBeenCalled();
 		});
 
 		it('does not consult the license for a seed without folders', async () => {
-			const idMap = await service.restoreFolders([], 'project-1');
+			const idMap = await service.restoreFolders([], 'project-1', evalUser);
 
 			expect(idMap.size).toBe(0);
 			expect(licenseState.isFoldersLicensed).not.toHaveBeenCalled();
@@ -830,6 +830,7 @@ describe('EvalThreadRestoreService', () => {
 				service.restoreFolders(
 					[{ id: 'odwArchive001', name: 'Archive', parentFolderId: 'missingFolder1' }],
 					'project-1',
+					evalUser,
 				),
 			).rejects.toThrow(BadRequestError);
 
@@ -848,22 +849,30 @@ describe('EvalThreadRestoreService', () => {
 						{ id: 'otherFolder01', name: 'Other' },
 					],
 					'project-1',
+					evalUser,
 				),
 			).rejects.toThrow('db down');
 
-			expect(folderRepository.delete).toHaveBeenCalledExactlyOnceWith({ id: 'real-odw' });
+			expect(folderService.deleteFolder).toHaveBeenCalledExactlyOnceWith(
+				evalUser,
+				'real-odw',
+				'project-1',
+				{ transferToFolderId: '0' },
+			);
 		});
 
-		it('deletes children before parents on rollback, and keeps going when one delete fails', async () => {
-			folderRepository.delete
+		it('deletes children before parents on rollback, moving contents to the root, and keeps going when one delete fails', async () => {
+			// Transfer, not archive: a re-applied seed workflow the restore moved into
+			// the folder was not created by it, and the rollback must not take it.
+			folderService.deleteFolder
 				.mockRejectedValueOnce(new Error('gone already'))
-				.mockResolvedValueOnce(mock());
+				.mockResolvedValueOnce(undefined);
 
-			await service.deleteFolders(['real-odw', 'real-archive']);
+			await service.deleteFolders(['real-odw', 'real-archive'], 'project-1', evalUser);
 
-			expect(folderRepository.delete.mock.calls).toEqual([
-				[{ id: 'real-archive' }],
-				[{ id: 'real-odw' }],
+			expect(folderService.deleteFolder.mock.calls).toEqual([
+				[evalUser, 'real-archive', 'project-1', { transferToFolderId: '0' }],
+				[evalUser, 'real-odw', 'project-1', { transferToFolderId: '0' }],
 			]);
 		});
 

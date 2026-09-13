@@ -923,6 +923,31 @@ describe('seed folders', () => {
 		expect(remapped.workflows[0].parentFolderId).toBe('odwFolder0001');
 	});
 
+	it('never rewrites a folder reference, even when a workflow id is a prefix of the folder id', () => {
+		// Folder ids are not in the remapped id space, so the whole-document replace
+		// of `oddsWatch` must not reach into `oddsWatchFold1`.
+		const seed: ConversationSeed = {
+			...makeSeed(),
+			messages: [],
+			folders: [{ id: 'oddsWatchFold1', name: 'ODW' }],
+			workflows: [
+				{
+					id: 'oddsWatch',
+					name: 'Daily digest',
+					nodes: [],
+					connections: {},
+					parentFolderId: 'oddsWatchFold1',
+				},
+			],
+		};
+
+		const remapped = remapSeedArtifactIds(seed);
+
+		expect(remapped.workflows[0].id).not.toBe('oddsWatch');
+		expect(remapped.workflows[0].parentFolderId).toBe('oddsWatchFold1');
+		expect(remapped.folders).toEqual([{ id: 'oddsWatchFold1', name: 'ODW' }]);
+	});
+
 	it('accepts a seed that carries only folders', () => {
 		const parsed = ConversationSeedSchema.safeParse({
 			messages: [],

@@ -410,9 +410,13 @@ export function remapSeedArtifactIds(seed: ConversationSeed): ConversationSeed {
 		...seed.workflows.map((workflow) => workflow.id),
 		...seed.agents.map((agent) => agent.id),
 	]);
+	// `parentFolderId` stays out of the blob: it names a folder id, which is not in
+	// the id space the replace below rewrites, so a workflow id that happens to be a
+	// substring of a folder id would otherwise corrupt the reference. Re-attached
+	// by index after the parse, unchanged.
 	let serialized = JSON.stringify({
 		messages: seed.messages,
-		workflows: seed.workflows,
+		workflows: seed.workflows.map(({ parentFolderId: _placement, ...workflow }) => workflow),
 		agents: seed.agents,
 	});
 	// Longest id first, for the same reason the name pass below sorts: if one id were a
@@ -447,9 +451,12 @@ export function remapSeedArtifactIds(seed: ConversationSeed): ConversationSeed {
 	}
 
 	// Uniquify names after the id pass, so the rename can't perturb id matching.
-	const workflows = remapped.workflows.map((workflow) => ({
+	const workflows = remapped.workflows.map((workflow, index) => ({
 		...workflow,
 		name: uniquifySeedName(workflow.name, freshSeedNameSuffix()),
+		...(seed.workflows[index].parentFolderId !== undefined
+			? { parentFolderId: seed.workflows[index].parentFolderId }
+			: {}),
 	}));
 
 	// Any mention in the seeded history follows the workflow, so the agent's own
@@ -499,7 +506,7 @@ export function remapSeedArtifactIds(seed: ConversationSeed): ConversationSeed {
 	// likewise: the serialized blob above covers only the id-bearing artifacts, so
 	// anything not re-attached here comes back as the schema's `[]` default —
 	// silently dropping the fixture instead of failing. A workflow's
-	// `parentFolderId` rides inside `workflows` and still names the seed folder id,
+	// `parentFolderId` was re-attached above and still names the seed folder id,
 	// which is what the server resolves.
 	return {
 		...remapped,

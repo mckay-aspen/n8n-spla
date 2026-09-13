@@ -1080,25 +1080,38 @@ export class N8nClient {
 	 * cascades to what it holds.
 	 * GET /rest/projects/:projectId/folders
 	 */
-	async listRootFolders(projectId: string): Promise<Array<{ id: string; name: string }>> {
+	async listRootFolders(
+		projectId: string,
+	): Promise<Array<{ id: string; name: string; workflowCount: number }>> {
 		// `parentFolderId: '0'` is `PROJECT_ROOT`. `take` is explicit because the
 		// default page is 10 and the eviction has to see every root folder.
 		const filter = encodeURIComponent(JSON.stringify({ parentFolderId: '0' }));
 		const result = (await this.fetch(
 			`/rest/projects/${projectId}/folders?filter=${filter}&take=250`,
-		)) as { data?: Array<{ id?: string; name?: string }> };
-		return (result.data ?? []).flatMap(({ id, name }) =>
-			id !== undefined && name !== undefined ? [{ id, name }] : [],
+		)) as { data?: Array<{ id?: string; name?: string; workflowCount?: number }> };
+		return (result.data ?? []).flatMap(({ id, name, workflowCount }) =>
+			id !== undefined && name !== undefined
+				? [{ id, name, workflowCount: workflowCount ?? 0 }]
+				: [],
 		);
 	}
 
 	/**
-	 * Delete a folder. Its workflows are archived and moved to the root, so call
-	 * it after the run's workflows are already gone.
+	 * Delete a folder. By default n8n archives the workflows it holds and moves
+	 * them to the root; `keepContents` moves folders and workflows to the root
+	 * unarchived instead, for a delete of a folder the run did not create.
 	 * DELETE /rest/projects/:projectId/folders/:folderId
 	 */
-	async deleteFolder(projectId: string, folderId: string): Promise<void> {
-		await this.fetch(`/rest/projects/${projectId}/folders/${folderId}`, { method: 'DELETE' });
+	async deleteFolder(
+		projectId: string,
+		folderId: string,
+		options: { keepContents?: boolean } = {},
+	): Promise<void> {
+		// `transferToFolderId=0` is `PROJECT_ROOT`.
+		const query = options.keepContents ? '?transferToFolderId=0' : '';
+		await this.fetch(`/rest/projects/${projectId}/folders/${folderId}${query}`, {
+			method: 'DELETE',
+		});
 	}
 
 	/**

@@ -1207,15 +1207,19 @@ describe('findSeedFolderIssues', () => {
 		expect(issues).toEqual([expect.stringContaining('its own parent')]);
 	});
 
-	it('flags a parent cycle', () => {
+	it('flags every member of a parent cycle, and every folder that descends from it', () => {
 		const issues = findSeedFolderIssues({
 			folders: [
 				{ id: 'folderAaaaaa', parentFolderId: 'folderBbbbbb' },
 				{ id: 'folderBbbbbb', parentFolderId: 'folderAaaaaa' },
+				{ id: 'folderCccccc', parentFolderId: 'folderAaaaaa' },
 			],
 		});
-		expect(issues.length).toBeGreaterThan(0);
-		expect(issues[0]).toContain('cycle');
+		expect(issues).toEqual([
+			'Seed folder "folderAaaaaa" is in a parent cycle',
+			'Seed folder "folderBbbbbb" is in a parent cycle',
+			'Seed folder "folderCccccc" descends from a parent cycle',
+		]);
 	});
 
 	it('flags a workflow placed in a folder the seed does not declare', () => {

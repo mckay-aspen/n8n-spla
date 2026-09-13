@@ -998,7 +998,11 @@ describe('InstanceAiController', () => {
 
 				const result = await controller.restoreEvalThread(req, res, folderPayload);
 
-				expect(evalThreadRestore.restoreFolders).toHaveBeenCalledWith([folder], 'project-1');
+				expect(evalThreadRestore.restoreFolders).toHaveBeenCalledWith(
+					[folder],
+					'project-1',
+					req.user,
+				);
 				expect(evalThreadRestore.restoreWorkflows).toHaveBeenCalledWith(
 					[placedWorkflow],
 					'project-1',
@@ -1026,7 +1030,11 @@ describe('InstanceAiController', () => {
 
 				await expect(controller.restoreEvalThread(req, res, folderPayload)).rejects.toThrow('boom');
 
-				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(['real-odw']);
+				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(
+					['real-odw'],
+					'project-1',
+					req.user,
+				);
 				// A folder delete cascades to the workflows inside it, so the workflows
 				// must already be gone by their own path (unpublished, then deleted).
 				const order = [
@@ -1047,7 +1055,11 @@ describe('InstanceAiController', () => {
 					'table refused',
 				);
 
-				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(['real-odw']);
+				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(
+					['real-odw'],
+					'project-1',
+					req.user,
+				);
 				expect(evalThreadRestore.restoreWorkflows).not.toHaveBeenCalled();
 			});
 
@@ -1066,7 +1078,7 @@ describe('InstanceAiController', () => {
 			it('creates no folders and reports none for a seed without them', async () => {
 				const result = await controller.restoreEvalThread(req, res, payload);
 
-				expect(evalThreadRestore.restoreFolders).toHaveBeenCalledWith([], 'project-1');
+				expect(evalThreadRestore.restoreFolders).toHaveBeenCalledWith([], 'project-1', req.user);
 				expect(result).toMatchObject({ folderIds: [] });
 			});
 		});

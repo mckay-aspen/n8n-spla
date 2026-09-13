@@ -1093,7 +1093,7 @@ export class InstanceAiController {
 		}
 		// Folders first: the workflows are created inside them. `restoreFolders`
 		// rolls its own partial work back, so nothing else exists yet if it fails.
-		const folderIdMap = await this.evalThreadRestore.restoreFolders(folders, projectId);
+		const folderIdMap = await this.evalThreadRestore.restoreFolders(folders, projectId, req.user);
 		const folderIds = [...folderIdMap.values()];
 		// Roll back everything we created if a later step fails, so a partial
 		// restore doesn't leak folders/tables/workflows/agents into the shared eval
@@ -1184,9 +1184,10 @@ export class InstanceAiController {
 			await this.evalThreadRestore.unpublishWorkflows(publishedWorkflowIds);
 			await this.evalThreadRestore.deleteWorkflows(createdWorkflowIds);
 			await this.evalThreadRestore.deleteDataTables(dataTableIds, projectId);
-			// Last: a folder delete cascades to the workflows inside it, which must
-			// already be unpublished and gone by their own path.
-			await this.evalThreadRestore.deleteFolders(folderIds);
+			// Last, with the contents moved to the root: a re-applied seed workflow
+			// (moved into the folder, not created) is kept by this rollback, so the
+			// folder must not take it down.
+			await this.evalThreadRestore.deleteFolders(folderIds, projectId, req.user);
 			throw error;
 		}
 		return {

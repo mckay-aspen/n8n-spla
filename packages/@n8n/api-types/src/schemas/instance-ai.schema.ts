@@ -2556,7 +2556,10 @@ export function findSeedFolderIssues(payload: {
 		}
 	}
 	// A cycle means no folder in it can be created first. Walk each chain to the
-	// root; a return to the start is a cycle. Missing parents were reported above.
+	// root: a return to the start is a cycle, and a repeat elsewhere means the
+	// chain leads into one, so this folder cannot be created either. Both are
+	// named, so the author sees every folder the fault blocks. Missing parents
+	// were reported above.
 	for (const folder of folders) {
 		// A self-parent is already reported above, as its own fault.
 		if (parentOf.get(folder.id) === folder.id) continue;
@@ -2564,9 +2567,11 @@ export function findSeedFolderIssues(payload: {
 		let current = parentOf.get(folder.id);
 		while (current !== undefined && parentOf.has(current)) {
 			if (seen.has(current)) {
-				if (current === folder.id) {
-					issues.push(`Seed folder "${folder.id}" is in a parent cycle`);
-				}
+				issues.push(
+					current === folder.id
+						? `Seed folder "${folder.id}" is in a parent cycle`
+						: `Seed folder "${folder.id}" descends from a parent cycle`,
+				);
 				break;
 			}
 			seen.add(current);

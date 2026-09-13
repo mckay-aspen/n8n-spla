@@ -3,7 +3,6 @@ import { createTeamProject, testDb, testModules } from '@n8n/backend-test-utils'
 import type { Project } from '@n8n/db';
 import {
 	CredentialsRepository,
-	FolderRepository,
 	SharedWorkflowRepository,
 	WorkflowPublishedVersionRepository,
 	WorkflowRepository,
@@ -57,7 +56,6 @@ describe('EvalThreadRestoreService.restoreDataTables (seed rows)', () => {
 			mock<WorkflowHistoryService>(),
 			mock<WorkflowService>(),
 			mock<FolderService>(),
-			Container.get(FolderRepository),
 			mock<LicenseState>(),
 		);
 	});
@@ -143,7 +141,6 @@ describe('EvalThreadRestoreService.reseedDataTableRows', () => {
 			mock<WorkflowHistoryService>(),
 			mock<WorkflowService>(),
 			mock<FolderService>(),
-			Container.get(FolderRepository),
 			mock<LicenseState>(),
 		);
 	});
@@ -242,7 +239,6 @@ describe('EvalThreadRestoreService.restoreWorkflows (policy seal)', () => {
 			mock<WorkflowHistoryService>(),
 			mock<WorkflowService>(),
 			mock<FolderService>(),
-			Container.get(FolderRepository),
 			mock<LicenseState>(),
 		);
 	});
