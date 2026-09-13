@@ -719,11 +719,22 @@ export class N8nClient {
 	}
 
 	/**
-	 * Delete a workflow by ID. The workflow must be archived first.
+	 * Delete a workflow by ID. The workflow must be archived first. A workflow
+	 * that is already archived (a folder delete archives what the folder held)
+	 * skips straight to the delete: refusing there left every such leftover
+	 * undeletable by eviction and cleanup alike.
 	 * DELETE /rest/workflows/:id
 	 */
 	async deleteWorkflow(id: string): Promise<void> {
-		await this.archiveWorkflow(id);
+		try {
+			await this.archiveWorkflow(id);
+		} catch (error: unknown) {
+			const alreadyArchived =
+				error instanceof N8nApiError &&
+				error.status === 400 &&
+				error.message.includes('already archived');
+			if (!alreadyArchived) throw error;
+		}
 		await this.fetch(`/rest/workflows/${id}`, { method: 'DELETE' });
 	}
 

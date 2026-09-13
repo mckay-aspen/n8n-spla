@@ -426,3 +426,48 @@ describe('N8nClient.restoreThread — folder seeding contract', () => {
 		});
 	});
 });
+
+describe('N8nClient.deleteWorkflow', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('still deletes a workflow whose archive step reports it already archived', async () => {
+		// A folder delete archives the workflows it held, so a leftover from a
+		// crashed folder case arrives here archived. The archive 400 must not stop
+		// the delete, or the leftover survives every eviction and cleanup.
+		const fetchMock = vi.fn(async (url: string | URL) => {
+			if (String(url).endsWith('/archive')) {
+				return new Response(
+					JSON.stringify({ code: 400, message: 'Workflow is already archived.' }),
+					{
+						status: 400,
+						headers: { 'Content-Type': 'application/json' },
+					},
+				);
+			}
+			return jsonResponse({ data: true });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.deleteWorkflow('wf-1')).resolves.toBeUndefined();
+
+		const calls = fetchMock.mock.calls.map(([url]) => String(url));
+		expect(calls).toEqual([
+			`${BASE_URL}/rest/workflows/wf-1/archive`,
+			`${BASE_URL}/rest/workflows/wf-1`,
+		]);
+	});
+
+	it('propagates any other archive failure without deleting', async () => {
+		const fetchMock = vi.fn(
+			async () => new Response('nope', { status: 500, headers: { 'Content-Type': 'text/plain' } }),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const client = new N8nClient(BASE_URL);
+
+		await expect(client.deleteWorkflow('wf-1')).rejects.toThrow(/500/);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
