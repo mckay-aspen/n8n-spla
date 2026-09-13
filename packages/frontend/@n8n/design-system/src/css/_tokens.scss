@@ -168,7 +168,9 @@
 	--node--icon--color--dark-blue: #353f6e;
 	--node--icon--color--sky-blue: #5699ff;
 	--node--icon--color--orange: #ff965a;
-	--node--icon--color--orange-red: var(--color--orange-500);
+	/* SPLA WHITE-LABEL: literal n8n orange — the ramp is remapped to navy, but
+	   node icons that are semantically orange must stay orange. */
+	--node--icon--color--orange-red: oklch(69.96% 0.202 44.44);
 	--node--icon--color--amber: #f92;
 	--node--icon--color--rust: #e44d26;
 	--node--icon--color--pink-red: #ea4b71;
@@ -654,10 +656,11 @@
 @mixin theme-dark {
 	@include tokens-legacy.theme-dark-legacy;
 
-	--background--brand: var(--color--orange-500);
-	--background--brand--hover: var(--color--orange-600);
-	--background--brand--active: var(--color--orange-700);
-	--background--brand--focus: var(--color--orange-400);
+	/* SPLA WHITE-LABEL: dark brand is the light indigo, not the navy ramp */
+	--background--brand: var(--color--primary);
+	--background--brand--hover: var(--color--primary--shade-1);
+	--background--brand--active: #6c84e8;
+	--background--brand--focus: var(--color--primary--tint-1);
 	--background--brand--disabled: var(--color--neutral-800);
 
 	--background--surface: var(--color--neutral-900);
@@ -802,7 +805,8 @@
 	--node--icon--color--dark-blue: #7ba7ff;
 	--node--icon--color--sky-blue: #7fb3ff;
 	--node--icon--color--orange: #ffb080;
-	--node--icon--color--orange-red: var(--color--orange-500);
+	/* SPLA WHITE-LABEL: literal n8n orange (see light-theme note) */
+	--node--icon--color--orange-red: oklch(69.96% 0.202 44.44);
 	--node--icon--color--amber: #ffb966;
 	--node--icon--color--rust: #f75;
 	--node--icon--color--pink-red: #f85d82;
@@ -890,10 +894,18 @@
 	--variables-usage--syntax--color--background: var(--color--green-alpha-200);
 
 	// Button primary
-	--button--outline-color--primary--focus: var(--color--orange-alpha-300);
+	/* SPLA WHITE-LABEL: dark buttons use the indigo brand with dark text
+	   (upstream keeps the same brand color in both themes, so it only
+	   overrides focus/disabled here). */
+	--button--color--text--primary: #0f172a;
+	--button--border-color--primary: var(--color--primary);
+	--button--color--background--primary: var(--color--primary);
+	--button--border-color--primary--hover-active: var(--color--primary--shade-1);
+	--button--color--background--primary--hover-active-focus: var(--color--primary--shade-1);
+	--button--outline-color--primary--focus: rgb(147 169 255 / 0.35);
 	--button--color--text--primary--disabled: var(--color--white-alpha-500);
 	--button--border-color--primary--disabled: transparent;
-	--button--color--background--primary--disabled: var(--color--orange-alpha-500);
+	--button--color--background--primary--disabled: rgb(147 169 255 / 0.45);
 
 	// Button secondary
 	--button--color--text--secondary: var(--color--neutral-150);
@@ -901,8 +913,8 @@
 	--button--color--background--secondary: var(--color--background--light-2);
 	--button--color--text--secondary--hover-active-focus: var(--color--orange-250);
 	--button--color--background--secondary--hover: var(--color--background--light-2);
-	--button--color--background--secondary--active-focus: var(--color--orange-alpha-100);
-	--button--outline-color--secondary--focus: var(--color--orange-alpha-300);
+	--button--color--background--secondary--active-focus: rgb(147 169 255 / 0.12);
+	--button--outline-color--secondary--focus: rgb(147 169 255 / 0.35);
 	--button--color--text--secondary--disabled: var(--color--white-alpha-500);
 	--button--border-color--secondary--disabled: var(--color--foreground);
 
@@ -910,7 +922,7 @@
 	--button--color--text--highlight: var(--color--neutral-300);
 	--button--border-color--highlight: transparent;
 	--button--color--background--highlight: transparent;
-	--button--color--text--highlight--hover-active-focus: var(--color--orange-400);
+	--button--color--text--highlight--hover-active-focus: var(--color--primary);
 	--button--border-color--highlight--hover-active-focus: var(--color--neutral-700);
 	--button--color--background--highlight--hover: var(--color--neutral-700);
 	--button--color--background--highlight--active-focus: var(--color--neutral-700);
@@ -947,8 +959,8 @@
 	--node-creator--button--color--text--hover: var(
 		--button--color--text--secondary--hover-active-focus
 	);
-	--node-creator--button--border-color--hover: var(--color--orange-500);
-	--node-creator--button--color--background: var(--color--orange-alpha-100);
+	--node-creator--button--border-color--hover: var(--color--primary);
+	--node-creator--button--color--background: rgb(147 169 255 / 0.12);
 
 	// Table
 	--table--header--color--background: var(--color--neutral-850);
@@ -971,8 +983,8 @@
 	// NDV
 	--run-data--color--background: var(--color--neutral-900);
 	--ndv--run-data--color--background: var(--color--neutral-900);
-	--ndv--droppable-parameter--color: var(--color--orange-500);
-	--ndv--droppable-parameter--color--background: var(--color--orange-alpha-100);
+	--ndv--droppable-parameter--color: var(--color--primary);
+	--ndv--droppable-parameter--color--background: rgb(147 169 255 / 0.12);
 	--ndv--droppable-parameter--color--background--active: var(--color--green-alpha-100);
 	--ndv--back--color--text: var(--color--neutral-white);
 	--ndv--background--color: var(--color--background--light-1);
@@ -1228,7 +1240,7 @@
 	--link--color--secondary--hover: var(--color--purple-500);
 	// Params
 	--icon--color: var(--color--text--tint-1);
-	--icon--color--hover: var(--color--orange-500);
+	--icon--color--hover: var(--color--primary);
 
 	--menu--color--background: var(--color--neutral-900);
 	--menu--color--background--hover: var(--color--neutral-700);

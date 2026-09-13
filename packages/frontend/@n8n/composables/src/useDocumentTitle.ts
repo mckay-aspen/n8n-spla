@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue';
 
-const DEFAULT_TITLE = 'n8n';
+// SPLA WHITE-LABEL
+const DEFAULT_TITLE = 'Autobot';
 const DEFAULT_TAGLINE = 'Workflow Automation';
 
 export type WorkflowTitleStatus =
