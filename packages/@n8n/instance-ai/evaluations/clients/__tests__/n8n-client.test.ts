@@ -482,15 +482,14 @@ describe('N8nClient.deleteFolderTree', () => {
 			const path = String(url).replace(BASE_URL, '');
 			calls.push(`${init?.method ?? 'GET'} ${path.split('?')[0]}`);
 			if (path.startsWith('/rest/projects/project-1/folders?')) {
-				const parent = JSON.parse(new URL(String(url)).searchParams.get('filter') ?? '{}') as {
-					parentFolderId?: string;
-				};
-				// `stale-odw` holds `archive-1`; `archive-1` holds nothing.
+				// The whole project, flat: `stale-odw` holds `archive-1`; `other` is
+				// unrelated and must survive.
 				return jsonResponse({
-					data:
-						parent.parentFolderId === 'stale-odw'
-							? [{ id: 'archive-1', name: 'Archive', workflowCount: 0 }]
-							: [],
+					data: [
+						{ id: 'stale-odw', name: 'ODW', parentFolder: null },
+						{ id: 'archive-1', name: 'Archive', parentFolder: { id: 'stale-odw' } },
+						{ id: 'other', name: 'Finance', parentFolder: null },
+					],
 				});
 			}
 			if (path === '/rest/workflows') {
@@ -522,7 +521,6 @@ describe('N8nClient.deleteFolderTree', () => {
 		await expect(client.deleteFolderTree('project-1', 'stale-odw')).resolves.toBe(2);
 
 		expect(calls).toEqual([
-			'GET /rest/projects/project-1/folders',
 			'GET /rest/projects/project-1/folders',
 			'GET /rest/workflows',
 			'POST /rest/workflows/wf-in-root/archive',

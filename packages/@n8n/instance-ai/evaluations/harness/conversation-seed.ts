@@ -3,7 +3,11 @@
 // `mode: 'replay'` reconstructs one from a LangSmith trace at run time (see
 // langsmith-seed.ts). Either way the shape below is what reaches restore-thread.
 
-import { instanceAiEvalSeedAgentSchema, instanceAiEvalSeedFolderSchema } from '@n8n/api-types';
+import {
+	instanceAiEvalSeedAgentSchema,
+	instanceAiEvalSeedArtifactIdSchema,
+	instanceAiEvalSeedFolderSchema,
+} from '@n8n/api-types';
 import { generateNanoId } from '@n8n/utils/generate-nano-id';
 import { isRecord } from '@n8n/utils/is-record';
 import { jsonParse } from 'n8n-workflow';
@@ -34,7 +38,7 @@ const SeedWorkflowSchema = z.object({
 	/** The `folders[].id` this workflow is created in. Omit for the project root.
 	 *  Must name a declared folder — checked at the case level, which sees both
 	 *  arrays (`findSeedFolderIssues`). */
-	parentFolderId: z.string().min(8).max(64).optional(),
+	parentFolderId: instanceAiEvalSeedArtifactIdSchema.optional(),
 });
 
 /** A project seeded before the live turn. Only the name is authored: the
@@ -449,9 +453,7 @@ export function remapSeedArtifactIds(seed: ConversationSeed): ConversationSeed {
 	const workflows = remapped.workflows.map((workflow, index) => ({
 		...workflow,
 		name: uniquifySeedName(workflow.name, freshSeedNameSuffix()),
-		...(seed.workflows[index].parentFolderId !== undefined
-			? { parentFolderId: seed.workflows[index].parentFolderId }
-			: {}),
+		parentFolderId: seed.workflows[index].parentFolderId,
 	}));
 
 	// Any mention in the seeded history follows the workflow, so the agent's own
@@ -500,9 +502,7 @@ export function remapSeedArtifactIds(seed: ConversationSeed): ConversationSeed {
 	// generated, not pinnable), so carry them through untouched here. `projects`
 	// likewise: the serialized blob above covers only the id-bearing artifacts, so
 	// anything not re-attached here comes back as the schema's `[]` default —
-	// silently dropping the fixture instead of failing. A workflow's
-	// `parentFolderId` was re-attached above and still names the seed folder id,
-	// which is what the server resolves.
+	// silently dropping the fixture instead of failing.
 	return {
 		...remapped,
 		messages,

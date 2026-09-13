@@ -1094,7 +1094,12 @@ export class InstanceAiController {
 		// Folders first: the workflows are created inside them. `restoreFolders`
 		// rolls its own partial work back, so nothing else exists yet if it fails.
 		const folderIdMap = await this.evalThreadRestore.restoreFolders(folders, projectId, req.user);
-		const folderIds = [...folderIdMap.values()];
+		// Positional to `folders`, like `workflowIds` to `workflows`, so the harness
+		// can pair each created id with the seed folder it came from.
+		const folderIds = folders.flatMap((folder) => {
+			const id = folderIdMap.get(folder.id);
+			return id === undefined ? [] : [id];
+		});
 		// Roll back everything we created if a later step fails, so a partial
 		// restore doesn't leak folders/tables/workflows/agents into the shared eval
 		// project.

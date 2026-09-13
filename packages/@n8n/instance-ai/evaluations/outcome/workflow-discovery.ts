@@ -41,7 +41,9 @@ export async function snapshotDataTableIds(client: N8nClient): Promise<Set<strin
 export async function snapshotRootFolderIds(client: N8nClient): Promise<Set<string>> {
 	try {
 		const folders = await client.listFolders(await client.getPersonalProjectId());
-		return new Set(folders.map((folder) => folder.id));
+		return new Set(
+			folders.filter((folder) => folder.parentFolderId === null).map((folder) => folder.id),
+		);
 	} catch {
 		return new Set();
 	}

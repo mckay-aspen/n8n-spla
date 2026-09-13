@@ -129,60 +129,65 @@ export async function cleanupBuild(
 		}
 	}
 
+	// Project-scoped artifacts: each id on its own, best-effort, so one failure
+	// never shields the rest. Returns false when any delete (or the project
+	// lookup) failed. Callers await it before folding into `clean`: a `&&=`
+	// would skip the whole kind once an earlier kind failed.
+	const deleteEachInProject = async (
+		ids: Iterable<string>,
+		remove: (projectId: string, id: string) => Promise<void>,
+	): Promise<boolean> => {
+		let ok = true;
+		try {
+			const projectId = await client.getPersonalProjectId();
+			for (const id of ids) {
+				try {
+					await remove(projectId, id);
+				} catch {
+					ok = false;
+				}
+			}
+		} catch {
+			ok = false; // Non-fatal — project ID lookup may fail
+		}
+		return ok;
+	};
+
 	// Agent-anchored builds create a first-class Agent, and a seed may have restored
 	// one — delete both with the rest of the build's artifacts so no caller has to
 	// remember to. A seeded agent the live turn also edited appears in both.
 	const agentRef = findAgentArtifactRef(build.artifactRefs);
 	const agentIds = new Set([...(agentRef ? [agentRef.id] : []), ...(build.createdAgentIds ?? [])]);
 	if (agentIds.size > 0) {
-		try {
-			const projectId = await client.getPersonalProjectId();
-			for (const id of agentIds) {
-				try {
-					await client.deleteAgent(projectId, id);
-				} catch {
-					clean = false; // Best-effort cleanup
-				}
-			}
-		} catch {
-			clean = false; // Non-fatal — project ID lookup may fail
-		}
+		const agentsClean = await deleteEachInProject(agentIds, async (projectId, id) => {
+			await client.deleteAgent(projectId, id);
+		});
+		clean = clean && agentsClean;
 	}
 
 	if (build.createdDataTableIds.length > 0) {
-		try {
-			const projectId = await client.getPersonalProjectId();
-			for (const dtId of build.createdDataTableIds) {
-				try {
-					await client.deleteDataTable(projectId, dtId);
-				} catch {
-					clean = false; // Best-effort cleanup
-				}
-			}
-			logger.verbose(`  Cleaned up ${String(build.createdDataTableIds.length)} data table(s)`);
-		} catch {
-			clean = false; // Non-fatal — project ID lookup may fail
-		}
+		const tablesClean = await deleteEachInProject(
+			build.createdDataTableIds,
+			async (projectId, id) => {
+				await client.deleteDataTable(projectId, id);
+			},
+		);
+		clean = clean && tablesClean;
+		logger.verbose(`  Cleaned up ${String(build.createdDataTableIds.length)} data table(s)`);
 	}
 
-	// Folders a seed created. After the workflows: a folder delete archives what
-	// it still holds and moves it to the root, so the workflows must already be
-	// gone by their own path. Children first (the restore returns parents first),
-	// so no delete lands on a folder its parent's cascade already removed.
+	// The root folders a seed created (the delete cascades to subfolders). After
+	// the workflows: a folder delete archives what it still holds, so the
+	// workflows must already be gone by their own path.
 	if (build.createdFolderIds?.length) {
-		try {
-			const projectId = await client.getPersonalProjectId();
-			for (const folderId of [...build.createdFolderIds].reverse()) {
-				try {
-					await client.deleteFolder(projectId, folderId);
-				} catch {
-					clean = false; // Best-effort cleanup
-				}
-			}
-			logger.verbose(`  Cleaned up ${String(build.createdFolderIds.length)} folder(s)`);
-		} catch {
-			clean = false; // Non-fatal — project ID lookup may fail
-		}
+		const foldersClean = await deleteEachInProject(
+			build.createdFolderIds,
+			async (projectId, id) => {
+				await client.deleteFolder(projectId, id);
+			},
+		);
+		clean = clean && foldersClean;
+		logger.verbose(`  Cleaned up ${String(build.createdFolderIds.length)} folder(s)`);
 	}
 
 	// Projects a seed created. Deleted last of the artifacts, so anything the

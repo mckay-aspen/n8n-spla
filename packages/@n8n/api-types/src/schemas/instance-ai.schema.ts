@@ -2478,6 +2478,13 @@ export class InstanceAiEvalCredentialAllowlistRequest extends Z.class({
 	bypassCredentialTest: z.array(z.string().min(1)).max(50).optional(),
 }) {}
 
+/** The id an authored seed gives a data table, agent or folder. ≥8 chars: the
+ *  restore remaps ids by whole-document string replace, and a short id would risk
+ *  corrupting unrelated substrings — so the restore path refuses shorter ids.
+ *  Enforcing it here fails a bad fixture at load time instead of after a workflow
+ *  has already been built. */
+export const instanceAiEvalSeedArtifactIdSchema = z.string().min(8).max(64);
+
 /** A workflow a conversation seed references, recreated at its given id so the
  *  seeded history resolves. Content is opaque here; the server validates it. */
 const instanceAiEvalSeedWorkflowSchema = z.object({
@@ -2491,7 +2498,7 @@ const instanceAiEvalSeedWorkflowSchema = z.object({
 	published: z.boolean().optional(),
 	/** The seed folder (`folders[].id`) the workflow is created in. Omit for the
 	 *  project root. Must name a declared folder; see `findSeedFolderIssues`. */
-	parentFolderId: z.string().min(8).max(64).optional(),
+	parentFolderId: instanceAiEvalSeedArtifactIdSchema.optional(),
 });
 
 export type InstanceAiEvalSeedWorkflow = z.infer<typeof instanceAiEvalSeedWorkflowSchema>;
@@ -2501,8 +2508,7 @@ export type InstanceAiEvalSeedWorkflow = z.infer<typeof instanceAiEvalSeedWorkfl
  *  generates the real id and maps this one to it. The name is created VERBATIM,
  *  with no seed suffix: the live turn names the folder the way a user would. */
 export const instanceAiEvalSeedFolderSchema = z.object({
-	// ≥8 chars like a seed data table id, so every seeded artifact obeys one rule.
-	id: z.string().min(8).max(64),
+	id: instanceAiEvalSeedArtifactIdSchema,
 	name: z
 		.string()
 		// Refused rather than trimmed. `folderNameSchema` trims silently, and a
@@ -2515,7 +2521,7 @@ export const instanceAiEvalSeedFolderSchema = z.object({
 		})
 		.pipe(folderNameSchema),
 	/** The seed folder this one sits in. Omit for a root folder. */
-	parentFolderId: z.string().min(8).max(64).optional(),
+	parentFolderId: instanceAiEvalSeedArtifactIdSchema.optional(),
 });
 
 export type InstanceAiEvalSeedFolder = z.infer<typeof instanceAiEvalSeedFolderSchema>;
@@ -2545,24 +2551,18 @@ export function findSeedFolderIssues(payload: {
 	}
 	for (const folder of folders) {
 		if (folder.parentFolderId === undefined) continue;
-		if (folder.parentFolderId === folder.id) {
-			issues.push(`Seed folder "${folder.id}" cannot be its own parent`);
-			continue;
-		}
 		if (!parentOf.has(folder.parentFolderId)) {
 			issues.push(
 				`Seed folder "${folder.id}" names parent "${folder.parentFolderId}", which the seed does not declare`,
 			);
 		}
 	}
-	// A cycle means no folder in it can be created first. Walk each chain to the
-	// root: a return to the start is a cycle, and a repeat elsewhere means the
-	// chain leads into one, so this folder cannot be created either. Both are
-	// named, so the author sees every folder the fault blocks. Missing parents
-	// were reported above.
+	// A cycle (a self-parent included) means no folder in it can be created
+	// first. Walk each chain to the root: a return to the start is a cycle, and a
+	// repeat elsewhere means the chain leads into one, so this folder cannot be
+	// created either. Both are named, so the author sees every folder the fault
+	// blocks. Missing parents were reported above.
 	for (const folder of folders) {
-		// A self-parent is already reported above, as its own fault.
-		if (parentOf.get(folder.id) === folder.id) continue;
 		const seen = new Set<string>([folder.id]);
 		let current = parentOf.get(folder.id);
 		while (current !== undefined && parentOf.has(current)) {
@@ -2596,11 +2596,7 @@ export function findSeedFolderIssues(payload: {
  *  explicitly `string`-typed column instead of being rejected by free-text
  *  `dataSetup` landing it in a `number` column. */
 export const instanceAiEvalSeedDataTableSchema = z.object({
-	// ≥8 chars: restore remaps this id by whole-document string replace, and a
-	// short id would risk corrupting unrelated substrings — so the restore path
-	// refuses shorter ids. Enforcing it here fails a bad fixture at load time
-	// instead of after a workflow has already been built.
-	id: z.string().min(8).max(64),
+	id: instanceAiEvalSeedArtifactIdSchema,
 	name: z.string().min(1).max(128),
 	columns: z
 		.array(
@@ -2627,9 +2623,7 @@ export type InstanceAiEvalSeedDataTable = z.infer<typeof instanceAiEvalSeedDataT
  *  Credential ids in the config are blanked on restore. */
 export const instanceAiEvalSeedAgentSchema = z
 	.object({
-		// ≥8 chars like a seed data table: the harness remaps this id by whole-document
-		// string replace before restoring.
-		id: z.string().min(8).max(64),
+		id: instanceAiEvalSeedArtifactIdSchema,
 		/** Carries the agent's display name as `config.name`. */
 		config: AgentJsonConfigSchema,
 		/** Skill bodies keyed by the ids `config.skills[].id` references. */

@@ -893,7 +893,7 @@ describe('EvalThreadRestoreService', () => {
 			);
 		});
 
-		it('deletes children before parents on rollback, moving contents to the root, and keeps going when one delete fails', async () => {
+		it('deletes each folder on rollback, moving contents to the root, and keeps going when one delete fails', async () => {
 			// Transfer, not archive: a re-applied seed workflow the restore moved into
 			// the folder was not created by it, and the rollback must not take it.
 			folderService.deleteFolder
@@ -903,8 +903,8 @@ describe('EvalThreadRestoreService', () => {
 			await service.deleteFolders(['real-odw', 'real-archive'], 'project-1', evalUser);
 
 			expect(folderService.deleteFolder.mock.calls).toEqual([
-				[evalUser, 'real-archive', 'project-1', { transferToFolderId: '0' }],
 				[evalUser, 'real-odw', 'project-1', { transferToFolderId: '0' }],
+				[evalUser, 'real-archive', 'project-1', { transferToFolderId: '0' }],
 			]);
 		});
 

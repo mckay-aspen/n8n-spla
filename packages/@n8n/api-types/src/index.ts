@@ -452,6 +452,7 @@ export {
 	instanceAiEvalSeedDataTableSchema,
 	instanceAiEvalSeedAgentSchema,
 	instanceAiEvalSeedFolderSchema,
+	instanceAiEvalSeedArtifactIdSchema,
 	findUnbackedSeedWorkflowTools,
 	findSeedFolderIssues,
 	applyBranchReadOnlyOverrides,

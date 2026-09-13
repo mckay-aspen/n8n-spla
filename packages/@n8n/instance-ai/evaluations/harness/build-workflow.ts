@@ -13,6 +13,7 @@ import type {
 	InstanceAiHandoffContext,
 	InstanceAiWorkflowAttachment,
 } from '@n8n/api-types';
+import { getErrorMessage } from '@n8n/utils/errors/get-error-message';
 import { truncate } from '@n8n/utils/string/truncate';
 import crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -253,8 +254,9 @@ export interface BuildResult {
 	 *  a regression ever did let the agent write into one, an early delete would
 	 *  destroy the workflow under grading and read as a build failure. */
 	createdProjectIds?: string[];
-	/** Folders a seed created in the thread's project. Deleted in `cleanupBuild`
-	 *  after the workflows, because a folder delete archives what it holds. */
+	/** The ROOT folders a seed created in the thread's project (a folder delete
+	 *  cascades to its subfolders). Deleted in `cleanupBuild` after the workflows,
+	 *  because a folder delete archives what it holds. */
 	createdFolderIds?: string[];
 	/** Maps each scenario seed table's declared NAME to the real id it was created
 	 *  under (empty) before the build turn, so each scenario can reset+seed its
@@ -816,7 +818,7 @@ export async function buildWorkflow(config: BuildWorkflowConfig): Promise<BuildR
 				// of one name to disambiguate. Evicted by name before the restore.
 				await evictLeftoverSeedFolders(
 					client,
-					remapped,
+					remapped.folders,
 					config.preRunFolderIds,
 					logger,
 					config.laneTag,
@@ -843,7 +845,11 @@ export async function buildWorkflow(config: BuildWorkflowConfig): Promise<BuildR
 				restoredWorkflowIds = restoreResult.workflowIds;
 				restoredDataTableIds = restoreResult.dataTableIds;
 				restoredAgentIds = restoreResult.agentIds;
-				restoredFolderIds = restoreResult.folderIds;
+				// `folderIds` is positional to `folders`. Cleanup needs the ROOT folders
+				// only: n8n's folder delete cascades to the subfolders.
+				restoredFolderIds = remapped.folders.flatMap((folder, index) =>
+					folder.parentFolderId === undefined ? [restoreResult.folderIds[index]] : [],
+				);
 				// The server binds the thread to the agent the history LAST targeted, so
 				// the harness has to grade that same one — array order is an authoring
 				// artifact and `findAgentArtifactRef` takes the first ref it sees.
@@ -859,7 +865,9 @@ export async function buildWorkflow(config: BuildWorkflowConfig): Promise<BuildR
 				// agent FINDING the folder, so a run where it never landed must be readable
 				// from the log alone.
 				const folderSuffix =
-					restoredFolderIds.length > 0 ? `, ${String(restoredFolderIds.length)} folder(s)` : '';
+					restoreResult.folderIds.length > 0
+						? `, ${String(restoreResult.folderIds.length)} folder(s)`
+						: '';
 				// Logged explicitly, not folded into the counts above: a project-scope case
 				// is graded on the agent SEEING this project, so a run where the fixture
 				// silently didn't land has to be readable from the log alone.
@@ -1386,7 +1394,6 @@ async function evictLeftovers<T extends { name: string }>(args: {
 	laneTag?: string;
 }): Promise<void> {
 	const tag = args.laneTag ?? '';
-	const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 	try {
 		const stale = (await args.list()).filter(args.isStale);
 		for (const item of stale) {
@@ -1397,13 +1404,13 @@ async function evictLeftovers<T extends { name: string }>(args: {
 				);
 			} catch (error: unknown) {
 				args.logger.info(
-					`  Could not evict leftover seed ${args.noun} "${item.name}" (continuing): ${reason(error)}${tag}`,
+					`  Could not evict leftover seed ${args.noun} "${item.name}" (continuing): ${getErrorMessage(error)}${tag}`,
 				);
 			}
 		}
 	} catch (error: unknown) {
 		args.logger.info(
-			`  Could not list ${args.noun}s to evict leftovers (continuing): ${reason(error)}${tag}`,
+			`  Could not list ${args.noun}s to evict leftovers (continuing): ${getErrorMessage(error)}${tag}`,
 		);
 	}
 }
@@ -1436,37 +1443,26 @@ async function evictLeftoverSeedProjects(
 }
 
 /**
- * Delete any root folder in the thread's project that carries a seed folder's
- * name AND existed before the run started, with everything in it, so a crashed
- * run's leftover cannot sit next to the one about to be created. Root level
- * only: a seed tree always starts at the root (every `parentFolderId` names a
- * declared folder), and the tree delete takes the subfolders and every workflow
- * inside with it — a crashed run's agent-built workflow included, unpublished
- * through the normal path so no trigger stays registered.
+ * Delete any root folder that carries a seed folder's name AND existed before
+ * the run started, with everything in it. Root level only: a seed tree always
+ * starts at the root (every `parentFolderId` names a declared folder). Same
+ * blast radius as the project eviction, for the same reason: the name is
+ * verbatim, so nothing marks a leftover — see the README's `folders` section.
  *
- * Same blast radius as the project eviction, and for the same reason: the name
- * is verbatim (the live turn says "the ODW folder"), so there is no `[seed …]`
- * marker to tell a leftover from a folder a human made. A same-named folder that
- * predates the run is deleted with its contents. Point folder cases at an eval
- * instance, and give seed folders names a real project would not use.
- *
- * The pre-run snapshot is what keeps a same-name match from reaching a sibling:
- * iterations of one case run back to back on a lane, and the previous
- * iteration's folder is still live (its cleanup runs after judging) when this
- * one restores. Anything created during the run is absent from the snapshot by
- * construction. No snapshot means no eviction.
+ * The pre-run snapshot keeps a same-name match from reaching a sibling: the
+ * previous iteration's folder is still live (its cleanup runs after judging)
+ * when this one restores, and nothing created during the run is in the
+ * snapshot. No snapshot means no eviction.
  */
 async function evictLeftoverSeedFolders(
 	client: N8nClient,
-	seed: ConversationSeed,
+	folders: ConversationSeed['folders'],
 	preRunFolderIds: Set<string> | undefined,
 	logger: EvalLogger,
 	laneTag?: string,
 ): Promise<void> {
 	const rootNames = new Set(
-		seed.folders
-			.filter((folder) => folder.parentFolderId === undefined)
-			.map((folder) => folder.name),
+		folders.filter((folder) => folder.parentFolderId === undefined).map((folder) => folder.name),
 	);
 	if (rootNames.size === 0 || preRunFolderIds === undefined) return;
 	const projectId = await client.getPersonalProjectId();

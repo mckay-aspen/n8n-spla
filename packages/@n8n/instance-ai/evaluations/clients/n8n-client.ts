@@ -27,7 +27,7 @@ import type {
 	AgentSkill,
 	EvaluationConfigDto,
 } from '@n8n/api-types';
-import { PROJECT_ROOT, type ExecutionStatus } from 'n8n-workflow';
+import type { ExecutionStatus } from 'n8n-workflow';
 import { Agent, setGlobalDispatcher } from 'undici';
 import { z } from 'zod';
 
@@ -186,16 +186,23 @@ interface WorkflowListItem {
 	parentFolder?: { id: string } | null;
 }
 
-/** One page of a project's folder list, trimmed to the fields the harness reads. */
+/** A project's folder list, trimmed to the fields the harness reads. */
 const FolderListEnvelope = z.object({
 	data: z.array(
 		z.object({
 			id: z.string(),
 			name: z.string(),
-			workflowCount: z.number().default(0),
+			parentFolder: z.object({ id: z.string() }).nullable().optional(),
 		}),
 	),
 });
+
+export interface FolderPlacement {
+	id: string;
+	name: string;
+	/** `null` at the project root. */
+	parentFolderId: string | null;
+}
 
 interface ExecutionListItem {
 	id: string;
@@ -1093,25 +1100,24 @@ export class N8nClient {
 	// -- Folders -------------------------------------------------------------
 
 	/**
-	 * List the folders directly under `parentFolderId` (`PROJECT_ROOT` for the
-	 * root) in a project. The eviction reads the root level to find a crashed
-	 * predecessor's leftover seed folder, and walks down from it.
+	 * Every folder in a project, flat, with the parent each one sits under. One
+	 * request: the pre-run snapshot, the eviction and the tree delete all derive
+	 * what they need (the root level, a subtree) from this list in memory.
 	 * GET /rest/projects/:projectId/folders
 	 */
-	async listFolders(
-		projectId: string,
-		parentFolderId: string = PROJECT_ROOT,
-	): Promise<Array<{ id: string; name: string; workflowCount: number }>> {
-		// `take` is explicit because the default page is 10 and the eviction has to
-		// see every folder at the level. `select` skips the joins the default select
-		// makes for fields nobody here reads.
+	async listFolders(projectId: string): Promise<FolderPlacement[]> {
+		// `take` is explicit because the default page is 10. `select` skips the
+		// joins and counts the default select makes for fields nobody here reads.
 		const query = new URLSearchParams({
-			filter: JSON.stringify({ parentFolderId }),
-			select: JSON.stringify(['id', 'name', 'workflowCount']),
+			select: JSON.stringify(['id', 'name', 'parentFolder']),
 			take: '250',
 		});
 		const result = await this.fetch(`/rest/projects/${projectId}/folders?${query.toString()}`);
-		return FolderListEnvelope.parse(result).data;
+		return FolderListEnvelope.parse(result).data.map(({ id, name, parentFolder }) => ({
+			id,
+			name,
+			parentFolderId: parentFolder?.id ?? null,
+		}));
 	}
 
 	/**
@@ -1131,21 +1137,18 @@ export class N8nClient {
 	 * leftover seed folder. Returns how many workflows it deleted.
 	 */
 	async deleteFolderTree(projectId: string, folderId: string): Promise<number> {
-		const folderIds = new Set<string>([folderId]);
-		const pending = [folderId];
-		while (pending.length > 0) {
-			const parent = pending.shift();
-			if (parent === undefined) break;
-			for (const child of await this.listFolders(projectId, parent)) {
-				folderIds.add(child.id);
-				pending.push(child.id);
+		const folders = await this.listFolders(projectId);
+		// A Set iterates over members added during the loop, so each folder's
+		// children join the walk as it reaches them.
+		const subtree = new Set<string>([folderId]);
+		for (const parentId of subtree) {
+			for (const folder of folders) {
+				if (folder.parentFolderId === parentId) subtree.add(folder.id);
 			}
 		}
 		const inside = (await this.listWorkflows()).filter(
 			(workflow) =>
-				workflow.parentFolder !== null &&
-				workflow.parentFolder !== undefined &&
-				folderIds.has(workflow.parentFolder.id),
+				workflow.parentFolder?.id !== undefined && subtree.has(workflow.parentFolder.id),
 		);
 		for (const workflow of inside) {
 			await this.deleteWorkflow(workflow.id);

@@ -152,9 +152,9 @@ export class EvalThreadRestoreService {
 	 *  Nothing inside is archived or cascaded away: a re-applied seed workflow
 	 *  (one this restore moved into the folder but did not create) survives at
 	 *  the root, which is where the rollback leaves it in every other respect.
-	 *  Children first, so no delete lands on a folder its parent already took. */
+	 *  The transfer also re-parents subfolders to the root, so order is free. */
 	async deleteFolders(folderIds: string[], projectId: string, user: User): Promise<void> {
-		for (const id of [...folderIds].reverse()) {
+		for (const id of folderIds) {
 			try {
 				await this.folderService.deleteFolder(user, id, projectId, {
 					transferToFolderId: PROJECT_ROOT,

@@ -50,15 +50,14 @@ export interface LangTracerCreateCaseBody {
 
 type InlineSeed = Extract<CaseSeed, { mode: 'inline' }>;
 
-/** The seed as the case-write API takes it. `folders` is absent rather than `[]`:
- *  the API's `seed` is `additionalProperties: false` and has no such key, so the
- *  schema default alone would fail EVERY seeded push, folder case or not. */
-export type PushableSeed = Omit<InlineSeed, 'folders'> & { folders?: InlineSeed['folders'] };
+/** The seed as the case-write API takes it: without `folders`. The API's `seed`
+ *  is `additionalProperties: false` and has no such key, so the schema default
+ *  `[]` alone would fail EVERY seeded push, folder case or not. A non-empty
+ *  `folders` never reaches here: `unsupportedPushReason` refuses it. */
+export type PushableSeed = Omit<InlineSeed, 'folders'>;
 
-function pushableSeed(seed: InlineSeed): PushableSeed {
-	// A non-empty `folders` never reaches here: `unsupportedPushReason` refuses it.
-	const { folders, ...rest } = seed;
-	return folders.length > 0 ? seed : rest;
+function pushableSeed({ folders: _notStored, ...seed }: InlineSeed): PushableSeed {
+	return seed;
 }
 
 export interface ToLangTracerOptions {

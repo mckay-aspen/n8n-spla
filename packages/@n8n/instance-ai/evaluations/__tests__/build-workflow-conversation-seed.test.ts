@@ -581,6 +581,17 @@ describe('buildWorkflow with scenario seed data tables', () => {
 describe('buildWorkflow with seeded folders', () => {
 	const FOLDER_ID = 'odwFolder0001';
 
+	/** A restore response that created the one seed folder as `real-odw`. */
+	const restoredWithFolder = (over: Record<string, unknown> = {}) =>
+		vi.fn().mockResolvedValue({
+			restored: 1,
+			workflowIds: ['restored-wf-1'],
+			dataTableIds: [],
+			agentIds: [],
+			folderIds: ['real-odw'],
+			...over,
+		});
+
 	function folderSeed(): ConversationSeed {
 		return {
 			...inlineSeed(),
@@ -597,14 +608,8 @@ describe('buildWorkflow with seeded folders', () => {
 		};
 	}
 
-	it('sends the folders with the restore and tracks the created ids for cleanup', async () => {
-		const restoreThread = vi.fn().mockResolvedValue({
-			restored: 1,
-			workflowIds: ['restored-wf-1'],
-			dataTableIds: [],
-			agentIds: [],
-			folderIds: ['real-odw'],
-		});
+	it('sends the folders with the restore and tracks the created root ids for cleanup', async () => {
+		const restoreThread = restoredWithFolder();
 
 		const build = await buildWorkflow({
 			client: makeClient(restoreThread),
@@ -621,21 +626,35 @@ describe('buildWorkflow with seeded folders', () => {
 		expect(build.createdFolderIds).toEqual(['real-odw']);
 	});
 
-	it('evicts a pre-run root folder of the same name before the restore, never a live sibling', async () => {
-		const restoreThread = vi.fn().mockResolvedValue({
-			restored: 1,
-			workflowIds: ['restored-wf-1'],
-			dataTableIds: [],
-			agentIds: [],
-			folderIds: ['real-odw'],
+	it('keeps only the root folders for cleanup, paired by position with the seed', async () => {
+		const restoreThread = restoredWithFolder({ folderIds: ['real-odw', 'real-archive'] });
+
+		const build = await buildWorkflow({
+			client: makeClient(restoreThread),
+			...baseConfig,
+			seed: {
+				mode: 'inline' as const,
+				...folderSeed(),
+				folders: [
+					{ id: FOLDER_ID, name: 'ODW' },
+					{ id: 'odwArchive001', name: 'Archive', parentFolderId: FOLDER_ID },
+				],
+			},
 		});
+
+		// The folder delete cascades to subfolders, so the child needs no delete.
+		expect(build.createdFolderIds).toEqual(['real-odw']);
+	});
+
+	it('evicts a pre-run root folder of the same name before the restore, never a live sibling', async () => {
+		const restoreThread = restoredWithFolder();
 		// `stale-odw` predates the run; `sibling-odw` is the previous iteration's
 		// live folder, created during the run. Only the first may go: the tree delete
 		// takes the workflows inside, which would dismantle the sibling's fixture.
 		const listFolders = vi.fn().mockResolvedValue([
-			{ id: 'stale-odw', name: 'ODW', workflowCount: 0 },
-			{ id: 'sibling-odw', name: 'ODW', workflowCount: 3 },
-			{ id: 'unrelated', name: 'Finance', workflowCount: 0 },
+			{ id: 'stale-odw', name: 'ODW', parentFolderId: null },
+			{ id: 'sibling-odw', name: 'ODW', parentFolderId: null },
+			{ id: 'unrelated', name: 'Finance', parentFolderId: null },
 		]);
 		const deleteFolderTree = vi.fn().mockResolvedValue(2);
 
@@ -653,16 +672,10 @@ describe('buildWorkflow with seeded folders', () => {
 	});
 
 	it('evicts nothing without a pre-run snapshot', async () => {
-		const restoreThread = vi.fn().mockResolvedValue({
-			restored: 1,
-			workflowIds: ['restored-wf-1'],
-			dataTableIds: [],
-			agentIds: [],
-			folderIds: ['real-odw'],
-		});
+		const restoreThread = restoredWithFolder();
 		const listFolders = vi
 			.fn()
-			.mockResolvedValue([{ id: 'stale-odw', name: 'ODW', workflowCount: 0 }]);
+			.mockResolvedValue([{ id: 'stale-odw', name: 'ODW', parentFolderId: null }]);
 		const deleteFolderTree = vi.fn().mockResolvedValue(0);
 
 		await buildWorkflow({
@@ -675,13 +688,7 @@ describe('buildWorkflow with seeded folders', () => {
 	});
 
 	it('restores a folders-only seed, which has nothing else thread-scoped', async () => {
-		const restoreThread = vi.fn().mockResolvedValue({
-			restored: 0,
-			workflowIds: [],
-			dataTableIds: [],
-			agentIds: [],
-			folderIds: ['real-odw'],
-		});
+		const restoreThread = restoredWithFolder({ restored: 0, workflowIds: [] });
 
 		await buildWorkflow({
 			client: makeClient(restoreThread),

@@ -1200,11 +1200,11 @@ describe('findSeedFolderIssues', () => {
 		expect(issues).toEqual([expect.stringContaining('"missingFolder1"')]);
 	});
 
-	it('flags a folder that is its own parent', () => {
+	it('flags a folder that is its own parent as a cycle', () => {
 		const issues = findSeedFolderIssues({
 			folders: [{ id: 'odwFolder0001', parentFolderId: 'odwFolder0001' }],
 		});
-		expect(issues).toEqual([expect.stringContaining('its own parent')]);
+		expect(issues).toEqual(['Seed folder "odwFolder0001" is in a parent cycle']);
 	});
 
 	it('flags every member of a parent cycle, and every folder that descends from it', () => {
@@ -1234,8 +1234,6 @@ describe('findSeedFolderIssues', () => {
 });
 
 describe('InstanceAiEvalRestoreThreadRequest folders', () => {
-	const errorOf = (result: { success: boolean; error?: { issues: unknown[] } }) =>
-		result.success ? '' : JSON.stringify(result.error?.issues);
 	const threadId = '11111111-1111-4111-8111-111111111111';
 
 	it('accepts folders and a workflow with a parentFolderId', () => {

@@ -175,15 +175,15 @@ describe('cleanupBuild', () => {
 });
 
 describe('cleanupBuild seeded folders', () => {
-	it('deletes seeded folders after the workflows, children first', async () => {
+	it('deletes the seeded root folders after the workflows', async () => {
 		const { client, mocks } = makeClient();
-		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F-parent', 'F-child'] };
+		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F-root-1', 'F-root-2'] };
 
 		await expect(cleanupBuild(client, build, silentLogger)).resolves.toBe(true);
 
 		expect(mocks.deleteFolder.mock.calls).toEqual([
-			['project-1', 'F-child'],
-			['project-1', 'F-parent'],
+			['project-1', 'F-root-1'],
+			['project-1', 'F-root-2'],
 		]);
 		// A folder delete archives what it still holds, so the workflows go first.
 		expect(mocks.deleteWorkflow.mock.invocationCallOrder[0]).toBeLessThan(
