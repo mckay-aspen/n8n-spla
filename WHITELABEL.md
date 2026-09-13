@@ -37,9 +37,12 @@ the monorepo (`pnpm build:docker`) and pushes:
 - `ghcr.io/mckay-aspen/n8n-spla:<version>-spla` (+ `:latest`)
 - `ghcr.io/mckay-aspen/n8n-spla-runners:<version>-spla`
 
-After the first publish, set both GHCR packages to **public** (Package
-settings → Change visibility) so Railway and local Docker can pull without
-credentials.
+Both GHCR packages stay **private**. Pulls authenticate with a GitHub token
+carrying `read:packages`:
+
+- Local: `gh auth token | docker login ghcr.io -u mckay-aspen --password-stdin`
+- Railway: paste a token into the `autobot` service's Settings → Source →
+  Registry Credentials (private-registry pulls need the Railway Pro plan).
 
 ## Upgrading to a new upstream release
 
