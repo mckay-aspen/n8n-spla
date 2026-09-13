@@ -1192,7 +1192,7 @@ export class InstanceAiController {
 			// Last, with the contents moved to the root: a re-applied seed workflow
 			// (moved into the folder, not created) is kept by this rollback, so the
 			// folder must not take it down.
-			await this.evalThreadRestore.deleteFolders(folderIds, projectId, req.user);
+			await this.evalThreadRestore.deleteFolders(folders, folderIdMap, projectId, req.user);
 			throw error;
 		}
 		return {

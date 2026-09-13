@@ -485,6 +485,7 @@ describe('N8nClient.deleteFolderTree', () => {
 				// The whole project, flat: `stale-odw` holds `archive-1`; `other` is
 				// unrelated and must survive.
 				return jsonResponse({
+					count: 3,
 					data: [
 						{ id: 'stale-odw', name: 'ODW', parentFolder: null },
 						{ id: 'archive-1', name: 'Archive', parentFolder: { id: 'stale-odw' } },
@@ -559,5 +560,35 @@ describe('N8nClient.getPersonalProjectId', () => {
 
 		await expect(client.getPersonalProjectId()).rejects.toThrow(/503/);
 		await expect(client.getPersonalProjectId()).resolves.toBe('project-1');
+	});
+});
+
+describe('N8nClient.listFolders', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('pages through the whole project, so a folder past the first page is still seen', async () => {
+		const first = Array.from({ length: 250 }, (_, i) => ({
+			id: `f${String(i)}`,
+			name: `Folder ${String(i)}`,
+			parentFolder: null,
+		}));
+		const fetchMock = vi.fn(async (url: string | URL) => {
+			const skip = new URL(String(url)).searchParams.get('skip');
+			return jsonResponse(
+				skip === '0'
+					? { count: 251, data: first }
+					: { count: 251, data: [{ id: 'late', name: 'ODW', parentFolder: { id: 'f0' } }] },
+			);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const client = new N8nClient(BASE_URL);
+
+		const folders = await client.listFolders('project-1');
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(folders).toHaveLength(251);
+		expect(folders.at(-1)).toEqual({ id: 'late', name: 'ODW', parentFolderId: 'f0' });
 	});
 });

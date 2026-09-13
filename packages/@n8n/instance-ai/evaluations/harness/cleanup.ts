@@ -120,14 +120,16 @@ export async function cleanupBuild(
 	logger: EvalLogger,
 ): Promise<boolean> {
 	let clean = true;
+	let workflowsClean = true;
 
 	for (const id of build.createdWorkflowIds) {
 		try {
 			await client.deleteWorkflow(id);
 		} catch {
-			clean = false; // Best-effort cleanup
+			workflowsClean = false; // Best-effort cleanup
 		}
 	}
+	clean = workflowsClean;
 
 	// Project-scoped artifacts: each id on its own, best-effort, so one failure
 	// never shields the rest. Returns false when any delete (or the project
@@ -176,10 +178,12 @@ export async function cleanupBuild(
 		logger.verbose(`  Cleaned up ${String(build.createdDataTableIds.length)} data table(s)`);
 	}
 
-	// The root folders a seed created (the delete cascades to subfolders). After
-	// the workflows: a folder delete archives what it still holds, so the
-	// workflows must already be gone by their own path.
-	if (build.createdFolderIds?.length) {
+	// The root folders a seed created (the delete cascades to subfolders). Only
+	// once every workflow is gone: a folder delete archives what it still holds
+	// and moves it to the root, and the retry would then find the workflow but
+	// 404 on the folder, so the cleanup could never complete. Left for the
+	// retry, which deletes the workflows first.
+	if (workflowsClean && build.createdFolderIds?.length) {
 		const foldersClean = await deleteEachInProject(
 			build.createdFolderIds,
 			async (projectId, id) => {

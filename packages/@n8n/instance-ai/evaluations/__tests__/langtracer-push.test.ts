@@ -426,6 +426,15 @@ describe('comparableDiff (post-write verification)', () => {
 		).toEqual([]);
 	});
 
+	it('reads an export without the empty `folders` slot as the disk seed that has it', () => {
+		// The push omits an empty `folders` (the write API has no such key), so the
+		// export never carries it, while the loader defaults it to `[]` on disk.
+		const { folders: _absent, ...stored } = inlineSeed();
+		expect(
+			comparableDiff(body({ seed: stored }), item('c', { seed: inlineSeed() }).testCase),
+		).toEqual([]);
+	});
+
 	it('names `seed` when a pre-#113 server dropped it', () => {
 		const written = item('c', { seed: inlineSeed() }).testCase;
 		expect(comparableDiff(body(), written)).toEqual(['seed']);

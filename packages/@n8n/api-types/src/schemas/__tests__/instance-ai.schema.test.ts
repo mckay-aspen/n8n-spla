@@ -1254,6 +1254,30 @@ describe('InstanceAiEvalRestoreThreadRequest folders', () => {
 		expect(result.success).toBe(true);
 	});
 
+	it('rejects a duplicate id and a parent cycle in the request itself', () => {
+		// A caller that validates with the schema alone must not accept a graph the
+		// restore cannot create.
+		const duplicate = InstanceAiEvalRestoreThreadRequest.safeParse({
+			threadId,
+			messages: [],
+			folders: [
+				{ id: 'odwFolder0001', name: 'ODW' },
+				{ id: 'odwFolder0001', name: 'ODW 2' },
+			],
+		});
+		expect(duplicate.success).toBe(false);
+
+		const cycle = InstanceAiEvalRestoreThreadRequest.safeParse({
+			threadId,
+			messages: [],
+			folders: [
+				{ id: 'folderAaaaaa', name: 'A', parentFolderId: 'folderBbbbbb' },
+				{ id: 'folderBbbbbb', name: 'B', parentFolderId: 'folderAaaaaa' },
+			],
+		});
+		expect(cycle.success).toBe(false);
+	});
+
 	it('caps folders at 20', () => {
 		const result = InstanceAiEvalRestoreThreadRequest.safeParse({
 			threadId,

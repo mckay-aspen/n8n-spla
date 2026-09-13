@@ -202,6 +202,20 @@ describe('cleanupBuild seeded folders', () => {
 		expect(mocks.deleteThread).toHaveBeenCalledWith('T1');
 	});
 
+	it('leaves the folders for the retry when a workflow delete failed', async () => {
+		// A folder delete archives the workflows still inside and moves them to the
+		// root; the retry would then 404 on the folder and never complete.
+		const { client, mocks } = makeClient({
+			deleteWorkflow: vi.fn().mockRejectedValue(new Error('HTTP 502')),
+		});
+		const build: BuildResult = { ...makeBuild(), createdFolderIds: ['F1'] };
+
+		await expect(cleanupBuild(client, build, silentLogger)).resolves.toBe(false);
+
+		expect(mocks.deleteFolder).not.toHaveBeenCalled();
+		expect(mocks.deleteDataTable).toHaveBeenCalledWith('project-1', 'DT1');
+	});
+
 	it('touches no folder API for a build without seeded folders', async () => {
 		const { client, mocks } = makeClient();
 

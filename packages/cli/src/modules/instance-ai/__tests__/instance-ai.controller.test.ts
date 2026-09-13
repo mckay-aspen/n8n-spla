@@ -1031,7 +1031,8 @@ describe('InstanceAiController', () => {
 				await expect(controller.restoreEvalThread(req, res, folderPayload)).rejects.toThrow('boom');
 
 				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(
-					['real-odw'],
+					[folder],
+					new Map([['odwFolder0001', 'real-odw']]),
 					'project-1',
 					req.user,
 				);
@@ -1056,7 +1057,8 @@ describe('InstanceAiController', () => {
 				);
 
 				expect(evalThreadRestore.deleteFolders).toHaveBeenCalledWith(
-					['real-odw'],
+					[folder],
+					new Map([['odwFolder0001', 'real-odw']]),
 					'project-1',
 					req.user,
 				);

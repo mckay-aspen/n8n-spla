@@ -141,26 +141,53 @@ export class EvalThreadRestoreService {
 				idMap.set(folder.id, created.id);
 			}
 		} catch (error) {
-			await this.deleteFolders([...idMap.values()], projectId, user);
+			await this.deleteFolders(folders, idMap, projectId, user);
 			throw error;
 		}
 		return idMap;
 	}
 
-	/** Best-effort delete (rollback of a failed restore), through the product's
-	 *  own folder delete with the contents transferred to the project root.
-	 *  Nothing inside is archived or cascaded away: a re-applied seed workflow
-	 *  (one this restore moved into the folder but did not create) survives at
-	 *  the root, which is where the rollback leaves it in every other respect.
-	 *  The transfer also re-parents subfolders to the root, so order is free. */
-	async deleteFolders(folderIds: string[], projectId: string, user: User): Promise<void> {
-		for (const id of folderIds) {
+	/**
+	 * Best-effort delete (rollback of a failed restore), through the product's
+	 * own folder delete with the contents transferred to the project root.
+	 * Nothing inside is archived or cascaded away: a re-applied seed workflow
+	 * (one this restore moved into the folder but did not create) survives at
+	 * the root, which is where the rollback leaves it in every other respect.
+	 *
+	 * Children before parents, and a parent whose child could not be deleted is
+	 * kept: deleting it would move that child to the root under a name nothing
+	 * evicts, while the kept parent still carries the seed name the next run's
+	 * eviction matches. Folders the map does not know (never created) are skipped.
+	 */
+	async deleteFolders(
+		folders: InstanceAiEvalSeedFolder[],
+		idMap: Map<string, string>,
+		projectId: string,
+		user: User,
+	): Promise<void> {
+		const depth = (folder: InstanceAiEvalSeedFolder): number => {
+			let level = 0;
+			let parentId = folder.parentFolderId;
+			while (parentId !== undefined && level < folders.length) {
+				level += 1;
+				parentId = folders.find((candidate) => candidate.id === parentId)?.parentFolderId;
+			}
+			return level;
+		};
+		const failed = new Set<string>();
+		for (const folder of [...folders].sort((a, b) => depth(b) - depth(a))) {
+			const createdId = idMap.get(folder.id);
+			if (createdId === undefined) continue;
+			if (folders.some((child) => child.parentFolderId === folder.id && failed.has(child.id))) {
+				failed.add(folder.id);
+				continue;
+			}
 			try {
-				await this.folderService.deleteFolder(user, id, projectId, {
+				await this.folderService.deleteFolder(user, createdId, projectId, {
 					transferToFolderId: PROJECT_ROOT,
 				});
 			} catch {
-				// best-effort
+				failed.add(folder.id); // best-effort
 			}
 		}
 	}

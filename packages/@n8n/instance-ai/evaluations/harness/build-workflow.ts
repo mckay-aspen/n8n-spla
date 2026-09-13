@@ -1465,13 +1465,14 @@ async function evictLeftoverSeedFolders(
 		folders.filter((folder) => folder.parentFolderId === undefined).map((folder) => folder.name),
 	);
 	if (rootNames.size === 0 || preRunFolderIds === undefined) return;
-	const projectId = await client.getPersonalProjectId();
+	// Inside the guarded callbacks: a failed project lookup is an eviction
+	// failure (logged, restore continues), not a seeding failure.
 	await evictLeftovers({
 		noun: 'folder',
-		list: async () => await client.listFolders(projectId),
+		list: async () => await client.listFolders(await client.getPersonalProjectId()),
 		isStale: (folder) => preRunFolderIds.has(folder.id) && rootNames.has(folder.name),
 		remove: async (folder) => {
-			const deleted = await client.deleteFolderTree(projectId, folder.id);
+			const deleted = await client.deleteFolderTree(await client.getPersonalProjectId(), folder.id);
 			return deleted > 0 ? `, with ${String(deleted)} workflow(s) inside` : '';
 		},
 		logger,

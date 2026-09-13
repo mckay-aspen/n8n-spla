@@ -893,19 +893,55 @@ describe('EvalThreadRestoreService', () => {
 			);
 		});
 
-		it('deletes each folder on rollback, moving contents to the root, and keeps going when one delete fails', async () => {
+		const tree = [
+			{ id: 'odwFolder0001', name: 'ODW' },
+			{ id: 'odwArchive001', name: 'Archive', parentFolderId: 'odwFolder0001' },
+		];
+		const created = new Map([
+			['odwFolder0001', 'real-odw'],
+			['odwArchive001', 'real-archive'],
+		]);
+
+		it('deletes children before parents on rollback, moving contents to the root', async () => {
 			// Transfer, not archive: a re-applied seed workflow the restore moved into
 			// the folder was not created by it, and the rollback must not take it.
-			folderService.deleteFolder
-				.mockRejectedValueOnce(new Error('gone already'))
-				.mockResolvedValueOnce(undefined);
-
-			await service.deleteFolders(['real-odw', 'real-archive'], 'project-1', evalUser);
+			await service.deleteFolders(tree, created, 'project-1', evalUser);
 
 			expect(folderService.deleteFolder.mock.calls).toEqual([
-				[evalUser, 'real-odw', 'project-1', { transferToFolderId: '0' }],
 				[evalUser, 'real-archive', 'project-1', { transferToFolderId: '0' }],
+				[evalUser, 'real-odw', 'project-1', { transferToFolderId: '0' }],
 			]);
+		});
+
+		it('keeps a parent whose child could not be deleted, so the leftover stays under the seed name', async () => {
+			// Deleting the parent would move the failed child to the root under a name
+			// nothing evicts; the kept parent is what the next run's eviction matches.
+			folderService.deleteFolder.mockRejectedValueOnce(new Error('busy'));
+
+			await service.deleteFolders(tree, created, 'project-1', evalUser);
+
+			expect(folderService.deleteFolder).toHaveBeenCalledExactlyOnceWith(
+				evalUser,
+				'real-archive',
+				'project-1',
+				{ transferToFolderId: '0' },
+			);
+		});
+
+		it('skips folders the restore never created', async () => {
+			await service.deleteFolders(
+				tree,
+				new Map([['odwFolder0001', 'real-odw']]),
+				'project-1',
+				evalUser,
+			);
+
+			expect(folderService.deleteFolder).toHaveBeenCalledExactlyOnceWith(
+				evalUser,
+				'real-odw',
+				'project-1',
+				{ transferToFolderId: '0' },
+			);
 		});
 
 		it('places a workflow in its remapped folder', async () => {

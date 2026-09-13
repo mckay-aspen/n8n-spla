@@ -671,6 +671,23 @@ describe('buildWorkflow with seeded folders', () => {
 		);
 	});
 
+	it('still restores when the folder listing for the eviction fails', async () => {
+		// The eviction is best-effort: a failed list (or project lookup inside it) is
+		// logged, and the restore still runs.
+		const restoreThread = restoredWithFolder();
+		const listFolders = vi.fn().mockRejectedValue(new Error('folders down'));
+
+		const build = await buildWorkflow({
+			client: makeClient(restoreThread, { listFolders }),
+			...baseConfig,
+			preRunFolderIds: new Set(['stale-odw']),
+			seed: { mode: 'inline' as const, ...folderSeed() },
+		});
+
+		expect(restoreThread).toHaveBeenCalledTimes(1);
+		expect(build.seedingFailed).not.toBe(true);
+	});
+
 	it('evicts nothing without a pre-run snapshot', async () => {
 		const restoreThread = restoredWithFolder();
 		const listFolders = vi

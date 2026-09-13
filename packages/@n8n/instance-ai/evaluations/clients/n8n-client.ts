@@ -186,8 +186,9 @@ interface WorkflowListItem {
 	parentFolder?: { id: string } | null;
 }
 
-/** A project's folder list, trimmed to the fields the harness reads. */
+/** One page of a project's folder list, trimmed to the fields the harness reads. */
 const FolderListEnvelope = z.object({
+	count: z.number(),
 	data: z.array(
 		z.object({
 			id: z.string(),
@@ -1106,15 +1107,24 @@ export class N8nClient {
 	 * GET /rest/projects/:projectId/folders
 	 */
 	async listFolders(projectId: string): Promise<FolderPlacement[]> {
-		// `take` is explicit because the default page is 10. No `select`: a custom
+		// Paged to the end: the eviction must see every folder, and a page that
+		// stops short would let a leftover hide behind the cut. No `select`: a custom
 		// select that includes `parentFolder` 500s on the server ("column
 		// distinctAlias.folder_updatedAt does not exist"), so the default select it is.
-		const result = await this.fetch(`/rest/projects/${projectId}/folders?take=250`);
-		return FolderListEnvelope.parse(result).data.map(({ id, name, parentFolder }) => ({
-			id,
-			name,
-			parentFolderId: parentFolder?.id ?? null,
-		}));
+		const pageSize = 250;
+		const folders: FolderPlacement[] = [];
+		for (let skip = 0; ; skip += pageSize) {
+			const page = FolderListEnvelope.parse(
+				await this.fetch(
+					`/rest/projects/${projectId}/folders?take=${String(pageSize)}&skip=${String(skip)}`,
+				),
+			);
+			for (const { id, name, parentFolder } of page.data) {
+				folders.push({ id, name, parentFolderId: parentFolder?.id ?? null });
+			}
+			if (page.data.length < pageSize || folders.length >= page.count) break;
+		}
+		return folders;
 	}
 
 	/**
