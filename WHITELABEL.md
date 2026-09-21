@@ -73,13 +73,19 @@ is what publishes the image; deploying it is a separate, manual step, because
 an upgrade runs database migrations against n8n-Postgres and the Autobot
 service is stateless with no volume. **Back that database up before deploying.**
 
-Two things it depends on, both easy to break:
+Three repository settings it depends on, all easy to get wrong:
 
 - The fork defaults `GITHUB_TOKEN` to read-only, so the workflow declares an
   explicit `permissions:` block. Do not remove it.
 - Opening the PR needs *Settings → Actions → General → Allow GitHub Actions to
-  create and approve pull requests*. Without it the workflow still pushes the
-  branch and falls back to opening an issue.
+  create and approve pull requests*. Without it the branch is still pushed and
+  the run reports that a PR is waiting to be opened by hand.
+- **Issues are currently disabled on this fork**, which is GitHub's default for
+  a fork. Reports therefore go to the job summary and fail the run, so the usual
+  "Run failed" e-mail is the notification. Turning Issues on under *Settings →
+  General → Features* gets a deduplicated issue instead, which is the nicer
+  channel — `.github/scripts/spla-report.sh` prefers it whenever it is available
+  and needs no other change.
 
 `n8n-aspen`'s `n8n-release-check.yml` predates this and overlaps with it. That
 one watches `releases/latest`, which is upstream's newest release overall

@@ -117,49 +117,6 @@ jobs:
 
           echo "tracking ${line}: on ${current}, newest ${latest}, newest line ${newest_line}, in flight ${in_flight}"
 
-      # A new line means a rebase, which needs judgement about breaking changes.
-      # Tell a person rather than attempting it.
-      - name: Report a new release line
-        if: steps.resolve.outputs.newest_line != steps.resolve.outputs.line
-        env:
-          LINE: ${{ steps.resolve.outputs.line }}
-          NEWEST: ${{ steps.resolve.outputs.newest_line }}
-        run: |
-          set -euo pipefail
-          title="n8n opened a new release line: ${NEWEST}"
-
-          open_titles=$(gh issue list --state open --limit 200 --json title --jq '.[].title')
-          if grep -qxF "$title" <<<"$open_titles"; then
-            echo "Already reported."
-            exit 0
-          fi
-
-          cat > "$RUNNER_TEMP/line.md" <<EOF
-          Upstream now publishes \`${NEWEST}\`. This fork tracks \`${LINE}\`.
-
-          Do not merge across lines. Each line carries its own backports of the
-          same fixes, so a merge conflicts on every file those backports touched —
-          the 2.38 to 2.40 jump produced 430 conflicts, 293 of them in source.
-          Rebase the fork's own commits onto the new line instead; WHITELABEL.md
-          has the procedure.
-
-          Read the release notes for breaking changes and migrations before
-          deploying: https://docs.n8n.io/release-notes/
-
-          Once the rebase lands, point \`.n8n-release-line\` at \`${NEWEST}\` and
-          bump both deployment pins:
-
-          - \`N8N_VERSION\` in \`mckay-aspen/n8n-aspen\` (\`.env.example\` and \`.env\`)
-          - the image tag in the website repo's \`.railway/railway.ts\`, which is
-            what \`railway config apply\` actually deploys
-          EOF
-
-          gh label create upstream-line --color 1D76DB \
-            --description 'New upstream release line' >/dev/null 2>&1 || true
-          gh issue create --title "$title" --body-file "$RUNNER_TEMP/line.md" \
-            --label upstream-line || \
-            gh issue create --title "$title" --body-file "$RUNNER_TEMP/line.md"
-
       - name: Decide whether there is anything to do
         id: gate
         env:
@@ -302,20 +259,21 @@ jobs:
           EOF
 
           # Creating a PR needs "Allow GitHub Actions to create and approve pull
-          # requests" in the repo's Actions settings. Fall back to an issue so a
-          # refusal still surfaces instead of vanishing.
+          # requests" in the repo's Actions settings. Fall back to a report so a
+          # refusal surfaces instead of vanishing — the branch is already pushed.
           if ! gh pr create --base spla-main --head "$BRANCH" \
             --title "chore: upgrade n8n to ${VERSION}" --body-file "$RUNNER_TEMP/pr.md"; then
-            echo "::warning::Could not open a PR; opening an issue instead."
+            echo "::warning::Could not open a PR for ${BRANCH}."
             {
-              echo "Branch \`${BRANCH}\` is pushed and ready, but this workflow could"
-              echo "not open a PR. Enable \"Allow GitHub Actions to create and approve"
-              echo "pull requests\" under Settings -> Actions -> General, or open it by hand."
+              echo "Branch \`${BRANCH}\` is pushed and ready, but this workflow could not"
+              echo "open a PR for it. Enable *Settings → Actions → General → Allow GitHub"
+              echo "Actions to create and approve pull requests*, or open it by hand."
               echo ""
               cat "$RUNNER_TEMP/pr.md"
             } > "$RUNNER_TEMP/fallback.md"
-            gh issue create --title "n8n ${VERSION} ready on \`${BRANCH}\`" \
-              --body-file "$RUNNER_TEMP/fallback.md"
+            .github/scripts/spla-report.sh \
+              "n8n ${VERSION} is ready on \`${BRANCH}\` but has no PR" \
+              "$RUNNER_TEMP/fallback.md"
           fi
 
       - name: Report a conflicted merge
@@ -325,19 +283,11 @@ jobs:
           LINE: ${{ steps.resolve.outputs.line }}
         run: |
           set -euo pipefail
-          title="n8n ${VERSION} does not merge cleanly"
-
-          open_titles=$(gh issue list --state open --limit 200 --json title --jq '.[].title')
-          if grep -qxF "$title" <<<"$open_titles"; then
-            echo "Already reported."
-            exit 0
-          fi
-
           cat > "$RUNNER_TEMP/conflict.md" <<EOF
           \`n8n@${VERSION}\` conflicts with the fork's own commits. Resolve it by hand:
 
           \`\`\`sh
-          git fetch upstream --tags
+          git fetch upstream --tags --force
           git checkout -b upgrade/n8n-${VERSION} spla-main
           git merge n8n@${VERSION}
           \`\`\`
@@ -349,4 +299,39 @@ jobs:
           Tracking \`${LINE}\`.
           EOF
 
-          gh issue create --title "$title" --body-file "$RUNNER_TEMP/conflict.md"
+          .github/scripts/spla-report.sh \
+            "n8n ${VERSION} does not merge cleanly" "$RUNNER_TEMP/conflict.md"
+
+      # Last, so that a patch upgrade on the current line still gets its PR
+      # opened above before this one can fail the run for want of an issue
+      # tracker. A new line means a rebase, which needs judgement about breaking
+      # changes — tell a person rather than attempting it.
+      - name: Report a new release line
+        if: steps.resolve.outputs.newest_line != steps.resolve.outputs.line
+        env:
+          LINE: ${{ steps.resolve.outputs.line }}
+          NEWEST: ${{ steps.resolve.outputs.newest_line }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/line.md" <<EOF
+          Upstream now publishes \`${NEWEST}\`. This fork tracks \`${LINE}\`.
+
+          Do not merge across lines. Each line carries its own backports of the
+          same fixes, so a merge conflicts on every file those backports touched —
+          the 2.38 to 2.40 jump produced 430 conflicts, 293 of them in source.
+          Rebase the fork's own commits onto the new line instead; WHITELABEL.md
+          has the procedure.
+
+          Read the release notes for breaking changes and migrations before
+          deploying: https://docs.n8n.io/release-notes/
+
+          Once the rebase lands, point \`.n8n-release-line\` at \`${NEWEST}\` and
+          bump both deployment pins:
+
+          - \`N8N_VERSION\` in \`mckay-aspen/n8n-aspen\` (\`.env.example\` and \`.env\`)
+          - the image tag in the website repo's \`.railway/railway.ts\`, which is
+            what \`railway config apply\` actually deploys
+          EOF
+
+          .github/scripts/spla-report.sh \
+            "n8n opened a new release line: ${NEWEST}" "$RUNNER_TEMP/line.md"
