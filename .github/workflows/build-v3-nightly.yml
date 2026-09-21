@@ -45,10 +45,20 @@ jobs:
   build:
     name: Build and push v3-nightly images
     needs: prepare
-    # No permissions/secrets caps here on purpose: this mirrors the proven
-    # release-publish.yml caller so docker-build-push.yml runs with the permissions
-    # (its own per-job blocks + repo defaults) and org secrets it already relies on.
-    # Capping here risks starving its sub-jobs (SLSA/attestation/scan/push).
+    # Grants the union of what docker-build-push.yml and its callees declare, per the
+    # rule in .github/CLAUDE.md that a job calling a reusable workflow must grant at
+    # least what that workflow declares. Nothing is capped below what a sub-job asks
+    # for, so the push/attestation/SLSA/scan legs all keep the access they rely on.
+    # Upstream can leave this implicit because n8n-io/n8n defaults the GITHUB_TOKEN to
+    # write. A fork defaults to read-only, and a nested job requesting more than the
+    # caller holds fails the whole run at startup validation, before the repository
+    # guard on `prepare` is ever evaluated.
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
     uses: ./.github/workflows/docker-build-push.yml # zizmor: ignore[excessive-permissions,secrets-inherit]
     with:
       ref: '3.x'
