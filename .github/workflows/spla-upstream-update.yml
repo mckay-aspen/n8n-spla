@@ -56,7 +56,17 @@ jobs:
         run: |
           set -euo pipefail
           git remote add upstream https://github.com/n8n-io/n8n.git 2>/dev/null || true
-          git fetch upstream --tags --quiet
+
+          # --force because n8n force-moves `beta`, `stable` and `v1` on every
+          # release. The fork carries older copies of those three, so without it
+          # the fetch rejects them and exits 1 — and `--quiet` would hide the
+          # report, leaving a failure with no stated reason. Stay loud here.
+          #
+          # The explicit refspec replaces the remote's default, which would drag
+          # in all ~1700 of upstream's branches. Only the release lines and the
+          # release tags are read below.
+          git fetch upstream --tags --force \
+            '+refs/heads/release-candidate/*:refs/remotes/upstream/release-candidate/*'
 
       - name: Resolve the tracked line and its newest tag
         id: resolve
