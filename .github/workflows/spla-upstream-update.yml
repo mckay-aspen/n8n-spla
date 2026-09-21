@@ -1,0 +1,342 @@
+# SPLA WHITE-LABEL: weekly upstream update check. This workflow is ours —
+# everything else under .github/workflows is upstream's.
+#
+# The fork tracks one upstream release line, named in `.n8n-release-line`.
+# The two cases need different work:
+#
+#   Same line (2.40.3 -> 2.40.4)  merge the tag, verify, open a PR.
+#   New line (2.41.x appears)     open an issue. A cross-line jump has to be a
+#                                 rebase, not a merge — see WHITELABEL.md.
+#
+# It never merges its own PR and never touches a deployment pin. An n8n upgrade
+# runs database migrations, and the Autobot instance keeps all of its state in
+# Postgres with no volume, so a person holds that gate.
+name: 'SPLA: Upstream update'
+
+on:
+  schedule:
+    - cron: '41 14 * * 1' # Mondays, after n8n-aspen's release check at 14:17
+  workflow_dispatch:
+    inputs:
+      line:
+        description: 'Release line to check instead of the one in .n8n-release-line'
+        required: false
+        type: string
+
+# A fork defaults the GITHUB_TOKEN to read-only, so name every scope. Without
+# this the push and the gh calls below fail at run time, not at validation.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: spla-upstream-update
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check the tracked release line
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # The monorepo build needs more disk than the runner has free by default.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/n8n-io/n8n.git 2>/dev/null || true
+          git fetch upstream --tags --quiet
+
+      - name: Resolve the tracked line and its newest tag
+        id: resolve
+        env:
+          LINE_INPUT: ${{ inputs.line }}
+        run: |
+          set -euo pipefail
+
+          line="${LINE_INPUT:-$(tr -d '[:space:]' < .n8n-release-line)}"
+          if ! git rev-parse --verify --quiet "upstream/${line}" >/dev/null; then
+            echo "::error::Tracked line upstream/${line} does not exist"
+            exit 1
+          fi
+
+          # Newest release tag on that line. Collected into a variable rather
+          # than piped to `head`, which would trip `pipefail` on SIGPIPE.
+          tags=$(git tag --list 'n8n@*' --merged "upstream/${line}" --sort=-v:refname)
+          latest=${tags%%$'\n'*}
+          if [ -z "$latest" ]; then
+            echo "::error::No n8n@* tags on upstream/${line}"
+            exit 1
+          fi
+
+          current="n8n@$(node -p "require('./package.json').version")"
+          version="${latest#n8n@}"
+          branch="upgrade/n8n-${version}"
+
+          # The highest line upstream publishes, to notice a new one opening.
+          newest_line="release-candidate/$(git branch -r --list 'upstream/release-candidate/*' \
+            | sed 's|.*release-candidate/||' | sort -V | tail -1)"
+
+          # A branch already on origin means a previous run opened a PR that is
+          # still in flight, possibly with hand-written fixes on it. Leave it be.
+          in_flight=false
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            in_flight=true
+          fi
+
+          {
+            echo "line=${line}"
+            echo "latest=${latest}"
+            echo "current=${current}"
+            echo "version=${version}"
+            echo "branch=${branch}"
+            echo "newest_line=${newest_line}"
+            echo "in_flight=${in_flight}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "tracking ${line}: on ${current}, newest ${latest}, newest line ${newest_line}, in flight ${in_flight}"
+
+      # A new line means a rebase, which needs judgement about breaking changes.
+      # Tell a person rather than attempting it.
+      - name: Report a new release line
+        if: steps.resolve.outputs.newest_line != steps.resolve.outputs.line
+        env:
+          LINE: ${{ steps.resolve.outputs.line }}
+          NEWEST: ${{ steps.resolve.outputs.newest_line }}
+        run: |
+          set -euo pipefail
+          title="n8n opened a new release line: ${NEWEST}"
+
+          open_titles=$(gh issue list --state open --limit 200 --json title --jq '.[].title')
+          if grep -qxF "$title" <<<"$open_titles"; then
+            echo "Already reported."
+            exit 0
+          fi
+
+          cat > "$RUNNER_TEMP/line.md" <<EOF
+          Upstream now publishes \`${NEWEST}\`. This fork tracks \`${LINE}\`.
+
+          Do not merge across lines. Each line carries its own backports of the
+          same fixes, so a merge conflicts on every file those backports touched —
+          the 2.38 to 2.40 jump produced 430 conflicts, 293 of them in source.
+          Rebase the fork's own commits onto the new line instead; WHITELABEL.md
+          has the procedure.
+
+          Read the release notes for breaking changes and migrations before
+          deploying: https://docs.n8n.io/release-notes/
+
+          Once the rebase lands, point \`.n8n-release-line\` at \`${NEWEST}\` and
+          bump both deployment pins:
+
+          - \`N8N_VERSION\` in \`mckay-aspen/n8n-aspen\` (\`.env.example\` and \`.env\`)
+          - the image tag in the website repo's \`.railway/railway.ts\`, which is
+            what \`railway config apply\` actually deploys
+          EOF
+
+          gh label create upstream-line --color 1D76DB \
+            --description 'New upstream release line' >/dev/null 2>&1 || true
+          gh issue create --title "$title" --body-file "$RUNNER_TEMP/line.md" \
+            --label upstream-line || \
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/line.md"
+
+      - name: Decide whether there is anything to do
+        id: gate
+        env:
+          LATEST: ${{ steps.resolve.outputs.latest }}
+          CURRENT: ${{ steps.resolve.outputs.current }}
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+          IN_FLIGHT: ${{ steps.resolve.outputs.in_flight }}
+        run: |
+          set -euo pipefail
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "Up to date on the tracked line."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          elif [ "$IN_FLIGHT" = "true" ]; then
+            echo "${BRANCH} already exists on origin — an upgrade is in flight."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge the new tag
+        id: merge
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          LATEST: ${{ steps.resolve.outputs.latest }}
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$BRANCH"
+
+          if git merge --no-edit "$LATEST"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same setup spla-build.yml uses, which is the recipe proven to build this
+      # monorepo on a GitHub-hosted runner.
+      - uses: pnpm/action-setup@v4 # version comes from packageManager in package.json
+        if: steps.merge.outputs.conflict == 'false'
+
+      - uses: actions/setup-node@v4
+        if: steps.merge.outputs.conflict == 'false'
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      # continue-on-error so a red build still produces a PR saying so. A silent
+      # skip would be worse than a PR that reports its own failure.
+      - name: Build and typecheck
+        id: verify
+        if: steps.merge.outputs.conflict == 'false'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+
+      # The white-label is what a merge is most likely to drop silently — an
+      # upstream token rename takes the brand ramp with it and still builds
+      # green. Assert the visible end state, not just the marker comments.
+      - name: Check the white-label survived
+        id: brand
+        if: steps.merge.outputs.conflict == 'false'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          DS=packages/frontend/@n8n/design-system/src/css/_primitives.scss
+          failed=0
+
+          check() { # pattern, file
+            if git grep -q -- "$1" -- "$2"; then
+              echo "ok      $2 still has $1"
+            else
+              echo "::error::$2 no longer contains $1 — the white-label was lost in the merge"
+              failed=1
+            fi
+          }
+
+          check '#172d72' "$DS"                                                  # brand, light
+          check '#93a9ff' "$DS"                                                  # brand, dark
+          check 'Autobot' packages/frontend/@n8n/composables/src/useDocumentTitle.ts
+          check 'Autobot' packages/frontend/editor-ui/index.html
+
+          echo "Files carrying the SPLA WHITE-LABEL marker:"
+          git grep -l 'SPLA WHITE-LABEL' -- packages .github
+
+          exit "$failed"
+
+      - name: Open the upgrade PR
+        if: steps.merge.outputs.conflict == 'false'
+        env:
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          CURRENT: ${{ steps.resolve.outputs.current }}
+          VERIFY: ${{ steps.verify.outcome }}
+          BRAND: ${{ steps.brand.outcome }}
+        run: |
+          set -euo pipefail
+          git push origin "$BRANCH"
+
+          # shellcheck disable=SC2016  # the $ in `\.ts$` anchors the regex
+          migrations=$(git diff --name-only --diff-filter=A "$CURRENT"...HEAD \
+            -- 'packages/@n8n/db/src/migrations/common/**' | sed 's|.*/||; s|^|- `|; s|\.ts$|`|')
+          [ -n "$migrations" ] || migrations='None. Patch releases within a line usually add none.'
+
+          cat > "$RUNNER_TEMP/pr.md" <<EOF
+          Merges \`n8n@${VERSION}\` into the fork, from the line named in
+          \`.n8n-release-line\`.
+
+          | Check | Result |
+          | --- | --- |
+          | \`pnpm build\` + \`pnpm typecheck\` | ${VERIFY} |
+          | \`SPLA WHITE-LABEL\` markers intact | ${BRAND} |
+
+          ### Database migrations in this upgrade
+
+          ${migrations}
+
+          Migrations run when the container starts, and the Autobot instance keeps
+          all of its state in n8n-Postgres with no volume. Back that database up
+          before deploying, not after.
+
+          ### After merging
+
+          Merging publishes \`ghcr.io/mckay-aspen/n8n-spla:${VERSION}-spla\` via
+          \`spla-build.yml\`. Deploying it is a separate, manual step — bump both
+          pins, which live in different repositories:
+
+          - \`N8N_VERSION\` in \`mckay-aspen/n8n-aspen\` (\`.env.example\` and \`.env\`)
+          - the image tag in the website repo's \`.railway/railway.ts\`, which is
+            what \`railway config apply\` actually deploys
+
+          Release notes: https://docs.n8n.io/release-notes/
+
+          _Opened by \`.github/workflows/spla-upstream-update.yml\`. It does not merge itself._
+          EOF
+
+          # Creating a PR needs "Allow GitHub Actions to create and approve pull
+          # requests" in the repo's Actions settings. Fall back to an issue so a
+          # refusal still surfaces instead of vanishing.
+          if ! gh pr create --base spla-main --head "$BRANCH" \
+            --title "chore: upgrade n8n to ${VERSION}" --body-file "$RUNNER_TEMP/pr.md"; then
+            echo "::warning::Could not open a PR; opening an issue instead."
+            {
+              echo "Branch \`${BRANCH}\` is pushed and ready, but this workflow could"
+              echo "not open a PR. Enable \"Allow GitHub Actions to create and approve"
+              echo "pull requests\" under Settings -> Actions -> General, or open it by hand."
+              echo ""
+              cat "$RUNNER_TEMP/pr.md"
+            } > "$RUNNER_TEMP/fallback.md"
+            gh issue create --title "n8n ${VERSION} ready on \`${BRANCH}\`" \
+              --body-file "$RUNNER_TEMP/fallback.md"
+          fi
+
+      - name: Report a conflicted merge
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+          LINE: ${{ steps.resolve.outputs.line }}
+        run: |
+          set -euo pipefail
+          title="n8n ${VERSION} does not merge cleanly"
+
+          open_titles=$(gh issue list --state open --limit 200 --json title --jq '.[].title')
+          if grep -qxF "$title" <<<"$open_titles"; then
+            echo "Already reported."
+            exit 0
+          fi
+
+          cat > "$RUNNER_TEMP/conflict.md" <<EOF
+          \`n8n@${VERSION}\` conflicts with the fork's own commits. Resolve it by hand:
+
+          \`\`\`sh
+          git fetch upstream --tags
+          git checkout -b upgrade/n8n-${VERSION} spla-main
+          git merge n8n@${VERSION}
+          \`\`\`
+
+          Conflicts should only land in the files WHITELABEL.md lists. If they
+          reach further than that, check whether upstream has moved this line's
+          base — a cross-line jump needs a rebase, not a merge.
+
+          Tracking \`${LINE}\`.
+          EOF
+
+          gh issue create --title "$title" --body-file "$RUNNER_TEMP/conflict.md"
