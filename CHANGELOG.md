@@ -1,3 +1,46 @@
+## [2.40.7](https://github.com/n8n-io/n8n/compare/n8n@2.40.6...n8n@2.40.7) (2026-09-25)
+
+
+### Bug Fixes
+
+* **core:** Propagate project span attributes to node spans ([#39457](https://github.com/n8n-io/n8n/issues/39457)) ([59fccb6](https://github.com/n8n-io/n8n/commit/59fccb645b0ff5f9933251f24ccb3046a53ed9fb))
+
+
+## [2.40.6](https://github.com/n8n-io/n8n/compare/n8n@2.40.5...n8n@2.40.6) (2026-09-24)
+
+
+### Bug Fixes
+
+* **core:** Keep OpenTelemetry export working after a restart when Sentry is enabled ([#39368](https://github.com/n8n-io/n8n/issues/39368)) ([7720a02](https://github.com/n8n-io/n8n/commit/7720a02599ef7c7fb8b44407cf7646c0915ecd4d))
+* **core:** Retry instance reports that cross the UTC midnight boundary ([#39434](https://github.com/n8n-io/n8n/issues/39434)) ([5e09a78](https://github.com/n8n-io/n8n/commit/5e09a780b58278f06d159d28c0771e1af28ef670))
+
+
+### Features
+
+* **core:** Authenticate instance reports with the license certificate ([#39381](https://github.com/n8n-io/n8n/issues/39381)) ([f0ab4ea](https://github.com/n8n-io/n8n/commit/f0ab4ea7de8db16f84d44d3234b27cf36bed8a0a))
+
+
+## [2.40.5](https://github.com/n8n-io/n8n/compare/n8n@2.40.4...n8n@2.40.5) (2026-09-21)
+
+
+### Bug Fixes
+
+* Limit declarative routing during base URL ownership checks ([#39147](https://github.com/n8n-io/n8n/issues/39147)) ([ebe5a73](https://github.com/n8n-io/n8n/commit/ebe5a73bdeea371d7ca2b10fcf228980a3c5a52f))
+
+
+## [2.40.4](https://github.com/n8n-io/n8n/compare/n8n@2.40.3...n8n@2.40.4) (2026-09-21)
+
+
+### Bug Fixes
+
+* **core:** Tear down workflow triggers when publication meets a node type the instance cannot load ([#39056](https://github.com/n8n-io/n8n/issues/39056)) ([6a941e4](https://github.com/n8n-io/n8n/commit/6a941e4a99ad8b99164b36a76c31f4581966012a))
+
+
+### Performance Improvements
+
+* **core:** Stop loading project members when listing credentials ([#39095](https://github.com/n8n-io/n8n/issues/39095)) ([b9b79ae](https://github.com/n8n-io/n8n/commit/b9b79ae6d0a2aa8adc65da5eb94951755101db70))
+
+
 ## [2.40.3](https://github.com/n8n-io/n8n/compare/n8n@2.40.2...n8n@2.40.3) (2026-09-18)
 
 
