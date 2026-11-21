@@ -25,6 +25,7 @@ third parties would require n8n's embed license.
 | HTML title + favicons | `packages/frontend/editor-ui/index.html`, `public/favicon.svg`, `public/favicon.ico` |
 | E-mail logo | `packages/frontend/editor-ui/public/static/n8n-logo.png` |
 | Serve `/favicon.svg` as a static asset (SPA fallback whitelists only `.ico`) | `packages/cli/src/server.ts` (`nonUIRoutes`) |
+| Workflow menu → *Export as document* (print / save as PDF, copy or download Markdown) for review and audit | `packages/frontend/editor-ui/src/app/utils/workflowReport.ts` (new), `.../components/MainHeader/ActionsDropdownMenu.vue`, `.../constants/actions.ts`, `packages/frontend/@n8n/i18n/src/locales/en.json` |
 | Image build CI | `.github/workflows/spla-build.yml` |
 | Weekly upstream update check | `.github/workflows/spla-upstream-update.yml`, `.n8n-release-line` |
 
