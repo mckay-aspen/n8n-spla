@@ -36,6 +36,8 @@ import {
 import { useSetupPanelStore } from '@/features/setupPanel/setupPanel.store';
 import { useWorkflowId } from '@/app/composables/useWorkflowId';
 import { useSettingsStore } from '@n8n/stores/settings.store';
+// SPLA WHITE-LABEL: opens the central node library
+import { NODE_LIBRARY_MODAL_KEY } from '@/features/workflows/nodeLibrary/nodeLibrary.constants';
 
 type Props = {
 	nodeViewScale: number;
@@ -184,6 +186,18 @@ function openCommandBar(event: MouseEvent) {
 				/>
 			</KeyboardShortcutTooltip>
 		</NodeCreatorShortcutCoachmark>
+		<!-- SPLA WHITE-LABEL: opens the central node library -->
+		<N8nTooltip v-if="!settingsStore.isCanvasOnly" placement="left">
+			<template #content>{{ i18n.baseText('nodeView.openNodeLibrary') }}</template>
+			<N8nIconButton
+				variant="subtle"
+				size="large"
+				icon="blocks"
+				:aria-label="i18n.baseText('nodeView.openNodeLibrary')"
+				data-test-id="node-library-button"
+				@click="uiStore.openModal(NODE_LIBRARY_MODAL_KEY)"
+			/>
+		</N8nTooltip>
 		<KeyboardShortcutTooltip
 			v-if="!settingsStore.isCanvasOnly"
 			:label="i18n.baseText('nodeView.openCommandBar')"

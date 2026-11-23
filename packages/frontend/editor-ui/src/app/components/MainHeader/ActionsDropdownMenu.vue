@@ -61,6 +61,8 @@ import {
 	workflowReportToHtml,
 	workflowReportToMarkdown,
 } from '@/app/utils/workflowReport';
+// SPLA WHITE-LABEL: pull nodes from the central node library
+import { NODE_LIBRARY_MODAL_KEY } from '@/features/workflows/nodeLibrary/nodeLibrary.constants';
 
 // Dependency submenu ids (`<type>:<id>`) share the menu with the fixed actions.
 type WorkflowMenuItem = DropdownMenuItemProps<WORKFLOW_MENU_ACTIONS | string>;
@@ -341,6 +343,13 @@ const workflowMenuItems = computed<WorkflowMenuItem[]>(() => {
 					icon: { type: 'icon', value: 'file-input' },
 					disabled: onExecutionsTab.value,
 				},
+				// SPLA WHITE-LABEL: pull nodes from the central node library
+				{
+					id: WORKFLOW_MENU_ACTIONS.IMPORT_FROM_LIBRARY,
+					label: locale.baseText('menuActions.importFromLibrary'),
+					icon: { type: 'icon', value: 'blocks' },
+					disabled: onExecutionsTab.value,
+				},
 			],
 		});
 	}
@@ -558,6 +567,11 @@ async function onWorkflowMenuSelect(action: WORKFLOW_MENU_ACTIONS | string): Pro
 		}
 		case WORKFLOW_MENU_ACTIONS.IMPORT_FROM_FILE: {
 			nodeViewEventBus.emit('importWorkflowFromFile');
+			break;
+		}
+		// SPLA WHITE-LABEL: pull nodes from the central node library
+		case WORKFLOW_MENU_ACTIONS.IMPORT_FROM_LIBRARY: {
+			uiStore.openModal(NODE_LIBRARY_MODAL_KEY);
 			break;
 		}
 		case WORKFLOW_MENU_ACTIONS.PUSH: {
