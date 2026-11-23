@@ -52,6 +52,17 @@ import { injectWorkflowDocumentStore } from '@/app/stores/workflowDocument.store
 import { useMcpJsonNudgeTrigger } from '@/experiments/mcpJsonNudge/composables/useMcpJsonNudgeTrigger';
 import { useDependencies } from '@/app/composables/useDependencies';
 import { useDependencyMenu } from '@/app/composables/useDependencyMenu';
+// SPLA WHITE-LABEL: readable document export for review and audit
+import { useClipboard } from '@n8n/composables/useClipboard';
+import { useNodeTypesStore } from '@/app/stores/nodeTypes.store';
+import {
+	buildWorkflowReport,
+	printHtmlDocument,
+	workflowReportToHtml,
+	workflowReportToMarkdown,
+} from '@/app/utils/workflowReport';
+// SPLA WHITE-LABEL: pull nodes from the central node library
+import { NODE_LIBRARY_MODAL_KEY } from '@/features/workflows/nodeLibrary/nodeLibrary.constants';
 
 // Dependency submenu ids (`<type>:<id>`) share the menu with the fixed actions.
 type WorkflowMenuItem = DropdownMenuItemProps<WORKFLOW_MENU_ACTIONS | string>;
@@ -91,6 +102,30 @@ const mcpJsonNudgeTrigger = useMcpJsonNudgeTrigger();
 const { getDependencies, fetchDependencies, fetchDependencyCounts, hasDependencies } =
 	useDependencies();
 const { buildDependencyMenuItems, resolveDependencyMenuId, openDependency } = useDependencyMenu();
+const clipboard = useClipboard();
+const nodeTypesStore = useNodeTypesStore();
+
+// SPLA WHITE-LABEL: builds the readable document from the workflow that is open in the editor.
+function buildCurrentWorkflowReport() {
+	if (!workflowDocumentStore?.value) {
+		throw new Error('Cannot export workflow: workflow document store is unavailable');
+	}
+	const { tags, ...workflow } = workflowDocumentStore.value.serialize();
+	return buildWorkflowReport({
+		workflow: { ...workflow, description: workflowDocumentStore.value.description },
+		tagNames: (tags ?? []).map((tagId) => tagsStore.tagsById[tagId]?.name ?? tagId),
+		sourceUrl: workflow.id ? window.location.origin + window.location.pathname : undefined,
+		generatedAt: new Date(),
+		describeNodeType: (type, typeVersion) => {
+			const nodeType = nodeTypesStore.getNodeType(type, typeVersion);
+			if (!nodeType) return undefined;
+			return {
+				displayName: nodeType.displayName,
+				isTrigger: nodeType.group.includes('trigger'),
+			};
+		},
+	});
+}
 
 // Prefetch the lightweight counts so the menu knows whether to show the entry.
 watch(
@@ -264,6 +299,29 @@ const workflowMenuItems = computed<WorkflowMenuItem[]>(() => {
 			label: locale.baseText('menuActions.exportJson'),
 			icon: { type: 'icon', value: 'download' },
 		},
+		// SPLA WHITE-LABEL: readable document export for review and audit
+		{
+			id: WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT,
+			label: locale.baseText('menuActions.exportDocument'),
+			icon: { type: 'icon', value: 'file-text' },
+			children: [
+				{
+					id: WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_PRINT,
+					label: locale.baseText('menuActions.exportDocument.print'),
+					icon: { type: 'icon', value: 'scroll-text' },
+				},
+				{
+					id: WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_COPY,
+					label: locale.baseText('menuActions.exportDocument.copy'),
+					icon: { type: 'icon', value: 'copy' },
+				},
+				{
+					id: WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_DOWNLOAD,
+					label: locale.baseText('menuActions.exportDocument.download'),
+					icon: { type: 'icon', value: 'download' },
+				},
+			],
+		},
 	];
 
 	if (canEdit) {
@@ -283,6 +341,13 @@ const workflowMenuItems = computed<WorkflowMenuItem[]>(() => {
 					id: WORKFLOW_MENU_ACTIONS.IMPORT_FROM_FILE,
 					label: locale.baseText('menuActions.importFromFile'),
 					icon: { type: 'icon', value: 'file-input' },
+					disabled: onExecutionsTab.value,
+				},
+				// SPLA WHITE-LABEL: pull nodes from the central node library
+				{
+					id: WORKFLOW_MENU_ACTIONS.IMPORT_FROM_LIBRARY,
+					label: locale.baseText('menuActions.importFromLibrary'),
+					icon: { type: 'icon', value: 'blocks' },
 					disabled: onExecutionsTab.value,
 				},
 			],
@@ -477,12 +542,36 @@ async function onWorkflowMenuSelect(action: WORKFLOW_MENU_ACTIONS | string): Pro
 			});
 			break;
 		}
+		// SPLA WHITE-LABEL: readable document export for review and audit
+		case WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_PRINT: {
+			printHtmlDocument(workflowReportToHtml(buildCurrentWorkflowReport()));
+			break;
+		}
+		case WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_COPY: {
+			await clipboard.copy(workflowReportToMarkdown(buildCurrentWorkflowReport()));
+			toast.showMessage({
+				title: locale.baseText('generic.copiedToClipboard'),
+				type: 'success',
+			});
+			break;
+		}
+		case WORKFLOW_MENU_ACTIONS.EXPORT_DOCUMENT_DOWNLOAD: {
+			const markdown = workflowReportToMarkdown(buildCurrentWorkflowReport());
+			const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+			saveAs(blob, sanitizeFilename(props.name || 'unsaved_workflow') + '.md');
+			break;
+		}
 		case WORKFLOW_MENU_ACTIONS.IMPORT_FROM_URL: {
 			uiStore.openModal(IMPORT_WORKFLOW_URL_MODAL_KEY);
 			break;
 		}
 		case WORKFLOW_MENU_ACTIONS.IMPORT_FROM_FILE: {
 			nodeViewEventBus.emit('importWorkflowFromFile');
+			break;
+		}
+		// SPLA WHITE-LABEL: pull nodes from the central node library
+		case WORKFLOW_MENU_ACTIONS.IMPORT_FROM_LIBRARY: {
+			uiStore.openModal(NODE_LIBRARY_MODAL_KEY);
 			break;
 		}
 		case WORKFLOW_MENU_ACTIONS.PUSH: {

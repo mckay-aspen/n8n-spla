@@ -18,4 +18,11 @@ export const enum WORKFLOW_MENU_ACTIONS {
 	SHARE = 'share',
 	FAVORITE = 'favorite',
 	DEPENDENCIES = 'dependencies',
+	// SPLA WHITE-LABEL: readable document export for review and audit
+	EXPORT_DOCUMENT = 'export-document',
+	EXPORT_DOCUMENT_PRINT = 'export-document-print',
+	EXPORT_DOCUMENT_COPY = 'export-document-copy',
+	EXPORT_DOCUMENT_DOWNLOAD = 'export-document-download',
+	// SPLA WHITE-LABEL: pull nodes from the central node library
+	IMPORT_FROM_LIBRARY = 'import-from-library',
 }
